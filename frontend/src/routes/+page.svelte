@@ -1,127 +1,122 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import ChatMessage from '$lib/components/ChatMessage.svelte';
 	import MessageInput from '$lib/components/MessageInput.svelte';
 	import LoadingIndicator from '$lib/components/LoadingIndicator.svelte';
-
-	type Message = {
-		id: string;
-		content: string;
-		role: 'user' | 'assistant';
-		timestamp: Date;
-	};
-
-	type Chat = {
-		id: string;
-		title: string;
-		lastMessage: string;
-		timestamp: Date;
-	};
+	import { apiClient, type Message, type ChatListItem, type StreamResponse } from '$lib/api';
 
 	let messages: Message[] = [];
-	let chats: Chat[] = [];
+	let chats: ChatListItem[] = [];
 	let currentChatId: string | null = null;
 	let isLoading = false;
 	let streamingMessage = '';
 	let isSidebarMinimized = false;
 
-	function generateId(): string {
-		return Math.random().toString(36).substr(2, 9);
+	onMount(async () => {
+		await loadChats();
+	});
+
+	async function loadChats() {
+		try {
+			chats = await apiClient.getChats();
+		} catch (error) {
+			console.error('Failed to load chats:', error);
+		}
 	}
 
-	function handleSendMessage(event: CustomEvent<{ content: string }>) {
+	async function handleSendMessage(event: CustomEvent<{ content: string }>) {
 		const userMessage: Message = {
-			id: generateId(),
+			id: crypto.randomUUID(),
 			content: event.detail.content,
 			role: 'user',
-			timestamp: new Date()
+			timestamp: new Date(),
+			chat_id: currentChatId || ''
 		};
 
 		messages = [...messages, userMessage];
 		isLoading = true;
-
-		// Simulate AI response with streaming
-		setTimeout(() => {
-			isLoading = false;
-			simulateStreamingResponse(event.detail.content);
-		}, 500);
-	}
-
-	function simulateStreamingResponse(userInput: string) {
-		const responses = [
-			"I understand your question. Let me think about that...",
-			"That's an interesting point. Here's what I think:",
-			"Great question! Based on the context, I would say:",
-			"Let me help you with that. Here's my response:"
-		];
-		
-		const response = responses[Math.floor(Math.random() * responses.length)];
 		streamingMessage = '';
-		
-		// Simulate streaming by adding characters over time
-		let i = 0;
-		const streamInterval = setInterval(() => {
-			streamingMessage += response[i];
-			i++;
-			
-			if (i >= response.length) {
-				clearInterval(streamInterval);
-				
-				// Add the complete message
-				const assistantMessage: Message = {
-					id: generateId(),
-					content: response,
-					role: 'assistant',
-					timestamp: new Date()
-				};
-				
-				messages = [...messages, assistantMessage];
-				streamingMessage = '';
-				
-				// Update or create chat
-				updateChat(userInput, response);
-			}
-		}, 30);
-	}
 
-	function updateChat(userMessage: string, assistantResponse: string) {
-		if (!currentChatId) {
-			// Create new chat
-			const newChat: Chat = {
-				id: generateId(),
-				title: userMessage.substring(0, 50) + (userMessage.length > 50 ? '...' : ''),
-				lastMessage: assistantResponse,
-				timestamp: new Date()
-			};
+		try {
+			const stream = await apiClient.sendMessage(event.detail.content, currentChatId || undefined);
+			const reader = stream.getReader();
 			
-			chats = [newChat, ...chats];
-			currentChatId = newChat.id;
-		} else {
-			// Update existing chat
-			chats = chats.map(chat => 
-				chat.id === currentChatId 
-					? { ...chat, lastMessage: assistantResponse, timestamp: new Date() }
-					: chat
-			);
+			let assistantMessage: Message | null = null;
+			
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+
+				const response: StreamResponse = value;
+				
+				if (response.type === 'content' && response.content) {
+					streamingMessage += response.content;
+				} else if (response.type === 'done') {
+					// Create the final assistant message
+					assistantMessage = {
+						id: response.message_id || crypto.randomUUID(),
+						content: streamingMessage,
+						role: 'assistant',
+						timestamp: new Date(),
+						chat_id: response.chat_id || currentChatId || ''
+					};
+					
+					messages = [...messages, assistantMessage];
+					streamingMessage = '';
+					
+					// Update chat ID if this was a new chat
+					if (response.chat_id && !currentChatId) {
+						currentChatId = response.chat_id;
+					}
+					
+					// Reload chats to update sidebar
+					await loadChats();
+				} else if (response.type === 'error') {
+					console.error('Streaming error:', response.error);
+					streamingMessage = '';
+				}
+			}
+		} catch (error) {
+			console.error('Failed to send message:', error);
+			streamingMessage = '';
+		} finally {
+			isLoading = false;
 		}
 	}
 
-	function handleNewChat() {
+	async function handleNewChat() {
 		currentChatId = null;
 		messages = [];
 		streamingMessage = '';
 	}
 
-	function handleSelectChat(event: CustomEvent<{ id: string }>) {
+	async function handleSelectChat(event: CustomEvent<{ id: string }>) {
 		currentChatId = event.detail.id;
-		// In a real app, load messages for this chat from backend/database
-		messages = [];
+		streamingMessage = '';
+		
+		try {
+			const chat = await apiClient.getChat(event.detail.id);
+			messages = chat.messages;
+		} catch (error) {
+			console.error('Failed to load chat messages:', error);
+			messages = [];
+		}
 	}
 
-	function handleDeleteChat(event: CustomEvent<{ id: string }>) {
-		chats = chats.filter(chat => chat.id !== event.detail.id);
-		if (currentChatId === event.detail.id) {
-			handleNewChat();
+	async function handleDeleteChat(event: CustomEvent<{ id: string }>) {
+		try {
+			await apiClient.deleteChat(event.detail.id);
+			
+			// Remove from local state
+			chats = chats.filter(chat => chat.id !== event.detail.id);
+			
+			// Clear current chat if it was deleted
+			if (currentChatId === event.detail.id) {
+				await handleNewChat();
+			}
+		} catch (error) {
+			console.error('Failed to delete chat:', error);
 		}
 	}
 
@@ -129,22 +124,8 @@
 		isSidebarMinimized = !isSidebarMinimized;
 	}
 
-	function handleSuggestedPrompt(prompt: string) {
-		const userMessage: Message = {
-			id: generateId(),
-			content: prompt,
-			role: 'user',
-			timestamp: new Date()
-		};
-
-		messages = [...messages, userMessage];
-		isLoading = true;
-
-		// Simulate AI response with streaming
-		setTimeout(() => {
-			isLoading = false;
-			simulateStreamingResponse(prompt);
-		}, 500);
+	async function handleSuggestedPrompt(prompt: string) {
+		await handleSendMessage(new CustomEvent('send', { detail: { content: prompt } }));
 	}
 </script>
 
