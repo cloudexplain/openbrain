@@ -4,8 +4,10 @@
 	export let chats: Array<{
 		id: string;
 		title: string;
-		lastMessage: string;
-		timestamp: Date;
+		created_at: string;
+		updated_at: string;
+		last_message?: string;
+		message_count: number;
 	}> = [];
 	
 	export let currentChatId: string | null = null;
@@ -16,10 +18,13 @@
 		newChat: {};
 		deleteChat: { id: string };
 		toggleMinimize: {};
+		toggleKnowledgeBase: {};
 	}>();
 
 	function selectChat(id: string) {
+		console.log('[Sidebar] selectChat called with ID:', id);
 		dispatch('selectChat', { id });
+		console.log('[Sidebar] selectChat event dispatched');
 	}
 
 	function createNewChat() {
@@ -33,6 +38,12 @@
 
 	function toggleMinimize() {
 		dispatch('toggleMinimize', {});
+	}
+	
+	function toggleKnowledgeBase() {
+		console.log('[Sidebar] toggleKnowledgeBase called');
+		dispatch('toggleKnowledgeBase', {});
+		console.log('[Sidebar] toggleKnowledgeBase event dispatched');
 	}
 
 	function truncateText(text: string, maxLength: number = 50) {
@@ -75,6 +86,16 @@
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
 				</svg>
 			</button>
+			
+			<button
+				on:click={toggleKnowledgeBase}
+				class="p-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-0.5"
+				title="Knowledge Base"
+			>
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+				</svg>
+			</button>
 		</div>
 	{:else}
 		<!-- Full View -->
@@ -92,15 +113,27 @@
 				</div>
 			</div>
 			
-			<button
-				on:click={createNewChat}
-				class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-600 hover:from-blue-600 hover:via-indigo-600 hover:to-purple-700 text-white rounded-lg transition-all duration-300 shadow-lg shadow-blue-300/60 hover:shadow-xl hover:shadow-blue-400/70 hover:-translate-y-0.5 font-medium text-sm"
-			>
-				<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-				</svg>
-				New Chat
-			</button>
+			<div class="flex gap-2">
+				<button
+					on:click={createNewChat}
+					class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-600 hover:from-blue-600 hover:via-indigo-600 hover:to-purple-700 text-white rounded-lg transition-all duration-300 shadow-lg shadow-blue-300/60 hover:shadow-xl hover:shadow-blue-400/70 hover:-translate-y-0.5 font-medium text-sm"
+				>
+					<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+					</svg>
+					New Chat
+				</button>
+				
+				<button
+					on:click={toggleKnowledgeBase}
+					class="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-lg transition-all duration-300 shadow-lg shadow-emerald-300/60 hover:shadow-xl hover:shadow-emerald-400/70 hover:-translate-y-0.5 font-medium text-sm"
+					title="Knowledge Base"
+				>
+					<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+					</svg>
+				</button>
+			</div>
 		</div>
 
 		<!-- Chat List -->
@@ -127,10 +160,10 @@
 										{chat.title}
 									</div>
 									<div class="text-xs text-slate-600 truncate mb-2 leading-relaxed">
-										{truncateText(chat.lastMessage, 45)}
+										{truncateText(chat.last_message || 'No messages yet', 45)}
 									</div>
 									<div class="text-xs text-slate-500 font-medium">
-										{chat.timestamp.toLocaleDateString([], { 
+										{new Date(chat.updated_at).toLocaleDateString([], { 
 											month: 'short', 
 											day: 'numeric',
 											hour: '2-digit',

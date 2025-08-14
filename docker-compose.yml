@@ -1,0 +1,3 @@
+# Symlink to docker-compose.dev.yml for backwards compatibility
+# Use docker-compose.dev.yml for development
+# Use docker-compose.prod.yml for production

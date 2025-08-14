@@ -15,21 +15,22 @@ A modern, production-ready chat interface for AI assistance with document ingest
 - Production-ready error handling and logging
 - CORS configured for local and production deployment
 
-**🚧 Phase 2 - Database & RAG (READY TO IMPLEMENT)**
-- PostgreSQL database with pgvector extension setup
-- Document ingestion pipeline (PDF, TXT, DOCX support)
-- Text chunking and embedding generation
-- Vector similarity search for context retrieval
-- RAG-powered responses with retrieved context
-- Document management and document_metadata storage
+**✅ Phase 2 - Database & RAG (COMPLETE)**
+- ✅ PostgreSQL database with pgvector extension setup
+- ✅ Chat conversations can be saved as documents (source_type: "chat")
+- ✅ Text chunking and embedding generation for chats
+- ✅ Vector similarity search with source filtering
+- ✅ Document ingestion pipeline (PDF, TXT, DOCX, MD support)
+- ✅ Async document upload with push notifications
+- ✅ RAG-powered responses with retrieved context
+- ✅ Knowledge base management interface
 
-**🔮 Phase 3 - Advanced Features (PLANNED)**
-- User authentication and authorization
-- Multi-user collaboration features
-- Document sharing and permissions
-- Advanced search and filtering
-- Conversation export and analytics
-- API rate limiting and monitoring
+**🚧 Phase 3 - Production & Advanced Features (IN PROGRESS)**
+- ✅ Docker containerization (development & production modes)
+- ✅ Production deployment guides with Azure Files support
+- Multi-user authentication and collaboration features
+- Advanced search, filtering, and document management
+- Conversation export, analytics, and API rate limiting
 
 ## 📁 Project Structure
 
@@ -77,14 +78,52 @@ secondbrain/
 
 ### Prerequisites
 
-- **Node.js 18+** with npm
-- **Python 3.11+** with pip
+- **Docker & Docker Compose** (recommended)
 - **Azure OpenAI API access** with:
   - GPT-4 deployment (for chat completions)
-  - text-embedding-ada-002 deployment (for future RAG features)
-- **PostgreSQL 14+** (for database features - coming in Phase 2)
+  - text-embedding-ada-002 deployment (for embeddings)
 
-### 1. Backend Setup
+### Option 1: Docker Compose (Recommended)
+
+#### Development Mode
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd secondbrain
+
+# Start in development mode with hot-reloading
+./dev.sh
+
+# Or manually:
+docker-compose -f docker-compose.dev.yml up
+```
+
+✅ **Application available at:** `http://localhost:5173`  
+📚 **API Documentation:** `http://localhost:8000/docs`
+
+#### Production Mode
+
+```bash
+# Copy and configure environment variables
+cp .env.example .env
+# Edit .env with your Azure OpenAI credentials
+
+# Start in production mode
+./prod.sh --build
+
+# Or manually:
+docker-compose -f docker-compose.prod.yml up --build
+```
+
+✅ **Application available at:** `http://localhost:3000`  
+📚 **API Documentation:** `http://localhost:8000/docs`
+
+### Option 2: Manual Setup
+
+If you prefer to run without Docker:
+
+#### 1. Backend Setup
 
 ```bash
 cd backend
@@ -98,28 +137,13 @@ pip install -r requirements.txt
 
 # Copy environment template
 cp .env.example .env
-
 # Edit .env with your Azure OpenAI credentials
-nano .env  # or use your preferred editor
-```
 
-**Required .env variables:**
-```env
-AZURE_OPENAI_API_KEY=your_azure_openai_api_key
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4
-AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME=text-embedding-ada-002
-```
-
-```bash
 # Start the development server
 python run.py
 ```
 
-✅ **Backend available at:** `http://localhost:8000`  
-📚 **API Documentation:** `http://localhost:8000/docs`
-
-### 2. Frontend Setup
+#### 2. Frontend Setup
 
 ```bash
 cd frontend
@@ -131,15 +155,126 @@ npm install
 npm run dev
 ```
 
-✅ **Frontend available at:** `http://localhost:5173`
+#### 3. Database Setup
+
+```bash
+# Start PostgreSQL with pgvector
+docker run -d \
+  --name secondbrain-postgres \
+  -e POSTGRES_DB=secondbrain \
+  -e POSTGRES_USER=secondbrain \
+  -e POSTGRES_PASSWORD=your_password \
+  -p 5432:5432 \
+  pgvector/pgvector:pg16
+```
 
 ### 3. Test the System
 
-1. Open `http://localhost:5173` in your browser
+1. Open the application in your browser
 2. Start a conversation - try "Hello, how can you help me?"
-3. Watch real-time streaming responses
-4. Create multiple chats to test session management
-5. Test chat deletion and navigation
+3. Upload documents (PDF, TXT, MD, DOCX) to the knowledge base
+4. Test RAG-powered responses with your uploaded content
+5. Save conversations to knowledge base for future reference
+
+## 🐳 Docker Deployment
+
+### Development vs Production
+
+This project includes separate configurations for different deployment scenarios:
+
+| Feature | Development | Production |
+|---------|------------|------------|
+| **Docker Compose File** | `docker-compose.dev.yml` | `docker-compose.prod.yml` |
+| **Source Code** | Mounted as volumes | Copied into image |
+| **Hot Reload** | Yes | No |
+| **Build Optimization** | No | Yes |
+| **Security** | Runs as root | Runs as non-root user |
+| **Frontend Build** | Dev server | Production build |
+| **Backend Server** | Development mode | Production mode |
+| **Uploads Directory** | Local mount | Docker volume |
+
+### Development Mode
+
+Perfect for development with hot-reloading and easy debugging:
+
+```bash
+# Quick start
+./dev.sh
+
+# With specific options
+docker-compose -f docker-compose.dev.yml up -d
+docker-compose -f docker-compose.dev.yml logs -f
+```
+
+**Features:**
+- Source code mounted as volumes
+- Automatic restart on file changes
+- Debug mode enabled
+- Direct file editing capability
+
+### Production Mode
+
+Optimized for deployment with security and performance:
+
+```bash
+# Configure environment
+cp .env.example .env
+# Edit .env with your production settings
+
+# Deploy
+./prod.sh --build
+```
+
+**Features:**
+- Optimized Docker images
+- No source code mounts (everything copied)
+- Production builds of frontend
+- Non-root users for security
+- Environment variable configuration
+
+### Environment Configuration
+
+Production mode requires a `.env` file with your settings:
+
+```env
+# PostgreSQL Configuration
+POSTGRES_USER=secondbrain
+POSTGRES_PASSWORD=your_secure_password_here
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_API_KEY=your_azure_openai_api_key
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment-name
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME=your-embedding-deployment-name
+AZURE_OPENAI_API_VERSION=2023-05-15
+
+# Port Configuration (optional)
+BACKEND_PORT=8000
+FRONTEND_PORT=3000
+```
+
+### Azure Storage Integration
+
+For production deployments, you can easily switch to Azure Files for document storage:
+
+```yaml
+# In docker-compose.prod.yml
+volumes:
+  uploads:
+    driver: azure_file
+    driver_opts:
+      share_name: secondbrain-uploads
+      storage_account_name: ${AZURE_STORAGE_ACCOUNT}
+```
+
+This seamless volume abstraction means no code changes are needed to switch between local storage and Azure Files.
+
+### Helper Scripts
+
+- `./dev.sh` - Quick development startup
+- `./prod.sh` - Production startup with environment validation
+
+For more detailed deployment information, see [`DEPLOYMENT.md`](./DEPLOYMENT.md).
 
 ## ⚙️ Configuration
 
@@ -190,6 +325,13 @@ const API_BASE_URL = 'http://localhost:8000/api/v1';  // Change this for product
 | Method | Endpoint | Description | Status |
 |--------|----------|-------------|---------|
 | `POST` | `/api/v1/chat` | Send message, get streaming response | ✅ |
+| `POST` | `/api/v1/chats/{id}/save-to-knowledge` | Save chat as document with embeddings | ✅ |
+
+### Knowledge Base
+
+| Method | Endpoint | Description | Status |
+|--------|----------|-------------|---------|
+| `POST` | `/api/v1/search` | Vector similarity search across documents | ✅ |
 
 ### System
 
@@ -292,12 +434,15 @@ CREATE TABLE messages (
 -- RAG document support (Phase 2)
 CREATE TABLE documents (
     id UUID PRIMARY KEY,
-    filename VARCHAR(255) NOT NULL,
-    content TEXT NOT NULL,
-    file_type VARCHAR(50) NOT NULL,
-    file_size INTEGER NOT NULL,
-    document_metadata TEXT,  -- JSON
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    title VARCHAR(255) NOT NULL,
+    source_type VARCHAR(50) NOT NULL,  -- 'chat', 'file', 'url', etc.
+    source_id VARCHAR(255),  -- chat_id, file_path, url, etc.
+    filename VARCHAR(255),  -- Only for file source_type
+    file_type VARCHAR(50),  -- Only for file source_type
+    file_size INTEGER,  -- Only for file source_type
+    document_metadata TEXT,  -- JSON for source-specific metadata
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE TABLE document_chunks (
@@ -339,16 +484,22 @@ CREATE TABLE document_chunks (
 - [x] TypeScript integration
 - [x] Production-ready error handling
 
-### 🚧 Phase 2: Database & RAG Integration (NEXT)
-- [ ] PostgreSQL + pgvector database setup
-- [ ] Alembic database migrations
-- [ ] Document upload API (PDF, TXT, DOCX)
-- [ ] Text chunking and embedding pipeline
-- [ ] Vector similarity search
-- [ ] RAG-enhanced chat responses
-- [ ] Document management interface
+### ✅ Phase 2: Database & RAG Integration (COMPLETE)
+- [x] PostgreSQL + pgvector database setup
+- [x] Alembic database migrations
+- [x] Chat conversations as searchable documents
+- [x] Text chunking and embedding pipeline for chats
+- [x] Vector similarity search with source filtering
+- [x] Save chat to knowledge base functionality
+- [x] Document upload API (PDF, TXT, DOCX, MD)
+- [x] Async document processing with push notifications
+- [x] RAG-enhanced chat responses
+- [x] Knowledge base management interface
 
-### 🔮 Phase 3: Advanced Features (PLANNED)
+### 🚧 Phase 3: Production & Advanced Features (IN PROGRESS)
+- [x] Docker containerization (dev & prod)
+- [x] Production deployment guides
+- [x] Azure Files integration for uploads
 - [ ] User authentication and authorization
 - [ ] Multi-user collaboration features
 - [ ] Document sharing and permissions
@@ -356,39 +507,51 @@ CREATE TABLE document_chunks (
 - [ ] Conversation export (JSON, Markdown)
 - [ ] Usage analytics and monitoring
 - [ ] API rate limiting
-- [ ] Docker containerization
-- [ ] Production deployment guides
+- [ ] SSL/TLS configuration
 
 ## 🚀 Next Steps to Add RAG
 
-Ready to add RAG functionality? Here's your roadmap:
+### ✅ Already Implemented
+- **Chat-to-Document Conversion**: Chat conversations can be saved as searchable documents
+- **Vector Embeddings**: Automatic embedding generation for chat messages
+- **Similarity Search**: Vector search with source type filtering
+- **Knowledge Base API**: Endpoints for saving and searching knowledge
 
-1. **Set up PostgreSQL + pgvector**
-   ```bash
-   # Add to database/ directory
-   docker-compose up -d postgres
+### 📝 How to Use Current Features
+
+1. **Save a chat to knowledge base:**
+   ```javascript
+   // After a chat conversation
+   const result = await apiClient.saveChatToKnowledge(chatId);
+   // Returns: { message, chunks_created, document_id }
    ```
 
-2. **Run database migrations**
-   ```bash
-   cd backend
-   alembic upgrade head
+2. **Search across all knowledge:**
+   ```javascript
+   const results = await apiClient.searchKnowledge(
+     "your search query",
+     5,  // limit
+     0.7,  // similarity threshold
+     ["chat", "file"]  // optional source type filter
+   );
    ```
 
-3. **Add document upload endpoint**
+### 🔜 Still To Do
+
+1. **Add document upload endpoint**
    - File upload handling
    - Text extraction from PDFs/DOCX
-   - Chunking strategy implementation
+   - Chunking strategy for documents
 
-4. **Implement vector search**
-   - Generate embeddings for document chunks
-   - Similarity search queries
-   - Context retrieval for chat
-
-5. **Enhance chat responses**
-   - Retrieve relevant context
+2. **Enhance chat responses with RAG**
+   - Retrieve relevant context before generating response
    - Augment prompts with retrieved information
-   - Citation and source tracking
+   - Citation and source tracking in responses
+
+3. **Document management UI**
+   - View all documents in knowledge base
+   - Delete or update documents
+   - Preview document chunks and embeddings
 
 ## 🤝 Contributing
 

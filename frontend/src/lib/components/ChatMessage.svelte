@@ -1,10 +1,41 @@
 <script lang="ts">
+	import { marked } from 'marked';
+	import { onMount } from 'svelte';
+
 	export let message: {
 		id: string;
 		content: string;
 		role: 'user' | 'assistant';
 		timestamp: Date;
 	};
+
+	let parsedContent = '';
+
+	// Configure marked options
+	marked.setOptions({
+		breaks: true, // Enable line breaks
+		gfm: true, // Enable GitHub Flavored Markdown
+	});
+
+	$: {
+		if (message.role === 'assistant') {
+			// Parse markdown for assistant messages
+			parsedContent = marked.parse(message.content) as string;
+		} else {
+			// For user messages, just escape HTML and preserve line breaks
+			parsedContent = message.content
+				.replace(/&/g, '&amp;')
+				.replace(/</g, '&lt;')
+				.replace(/>/g, '&gt;')
+				.replace(/\n/g, '<br>');
+		}
+	}
+
+	function copyToClipboard() {
+		navigator.clipboard.writeText(message.content).catch(err => {
+			console.error('Failed to copy text: ', err);
+		});
+	}
 </script>
 
 <div class="group px-6 py-8 transition-colors duration-200 hover:bg-gray-50/30">
@@ -34,38 +65,28 @@
 					<span class="text-sm font-medium text-gray-900">
 						{message.role === 'user' ? 'You' : 'Assistant'}
 					</span>
-					<span class="text-xs text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-						{message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-					</span>
 				</div>
 				
 				<!-- Message Text -->
-				<div class="prose prose-sm max-w-none text-gray-800 leading-relaxed">
-					<div class="whitespace-pre-wrap break-words font-normal text-[15px] leading-7">
-						{message.content}
-					</div>
+				<div class="prose prose-sm prose-gray max-w-none text-gray-800 leading-relaxed 
+							prose-headings:text-gray-900 prose-headings:font-semibold
+							prose-a:text-blue-600 hover:prose-a:text-blue-800 prose-a:no-underline hover:prose-a:underline
+							prose-code:text-gray-900 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:font-medium
+							prose-pre:bg-gray-50 prose-pre:border prose-pre:border-gray-200 prose-pre:rounded-lg prose-pre:p-4 prose-pre:overflow-x-auto
+							prose-blockquote:border-l-blue-500 prose-blockquote:bg-blue-50/50 prose-blockquote:p-4 prose-blockquote:rounded-r-lg
+							prose-ul:list-disc prose-ol:list-decimal prose-li:my-1
+							prose-table:border-collapse prose-th:border prose-th:border-gray-300 prose-th:p-2 prose-th:bg-gray-50 prose-td:border prose-td:border-gray-300 prose-td:p-2">
+					{@html parsedContent}
 				</div>
 				
 				<!-- Action Buttons (for assistant messages) -->
 				{#if message.role === 'assistant'}
 					<div class="flex items-center gap-2 mt-4 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-						<button class="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors duration-150">
+						<button on:click={copyToClipboard} class="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors duration-150">
 							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
 							</svg>
 							Copy
-						</button>
-						<button class="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors duration-150">
-							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-							</svg>
-							Like
-						</button>
-						<button class="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors duration-150">
-							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-							</svg>
-							Dislike
 						</button>
 					</div>
 				{/if}

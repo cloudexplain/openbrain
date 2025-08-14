@@ -1,0 +1,41 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+# env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# Virtual environments
+.venv
+venv/
+ENV/
+# env/
+
+# IDEs
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local development
+# .env is needed for production, so don't ignore it
+*.sqlite3
+log.txt

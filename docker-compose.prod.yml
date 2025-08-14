@@ -1,0 +1,119 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database with pgvector
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: secondbrain-postgres
+    environment:
+      POSTGRES_DB: secondbrain
+      POSTGRES_USER: secondbrain
+      POSTGRES_PASSWORD: secondbrain_password
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.max=10000
+      -c pg_stat_statements.track=all
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - secondbrain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U secondbrain -d secondbrain"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Database initializer - ensures tables exist
+  db-init:
+    image: pgvector/pgvector:pg16
+    container_name: secondbrain-db-init
+    environment:
+      PGHOST: postgres
+      PGUSER: secondbrain
+      PGPASSWORD: secondbrain_password
+      PGDATABASE: secondbrain
+    volumes:
+      - ./database/init-scripts:/init-scripts
+    networks:
+      - secondbrain-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    command: >
+      bash -c "
+        echo 'Running database initialization scripts...'
+        for f in /init-scripts/*.sql; do
+          [ -e \"$$f\" ] || continue
+          echo \"Executing $$f\"
+          psql -f \"$$f\"
+        done
+        echo 'Database initialization completed'
+      "
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    image: secondbrain-backend:prod
+    container_name: secondbrain-backend
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://secondbrain:secondbrain_password@postgres:5432/secondbrain
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - uploads:/app/uploads
+    networks:
+      - secondbrain-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+    # todo: remove, once it works
+    # command: sleep infinity
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # SvelteKit Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    image: secondbrain-frontend:prod
+    container_name: secondbrain-frontend
+    environment:
+      - NODE_ENV=production
+      - BODY_SIZE_LIMIT=52428800
+    ports:
+      - "3000:3000"
+    networks:
+      - secondbrain-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  postgres_data:
+    driver: local
+  uploads:
+    driver: local
+
+networks:
+  secondbrain-network:
+    driver: bridge

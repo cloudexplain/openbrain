@@ -4,7 +4,13 @@
 	import ChatMessage from '$lib/components/ChatMessage.svelte';
 	import MessageInput from '$lib/components/MessageInput.svelte';
 	import LoadingIndicator from '$lib/components/LoadingIndicator.svelte';
-	import { apiClient, type Message, type ChatListItem, type StreamResponse } from '$lib/api';
+	import KnowledgeEditModal from '$lib/components/KnowledgeEditModal.svelte';
+	import Notification from '$lib/components/Notification.svelte';
+	import KnowledgeBase from '$lib/components/KnowledgeBase.svelte';
+	import type { Message, ChatListItem, StreamResponse } from '$lib/api';
+	
+	// Get data from server
+	export let data;
 
 	let messages: Message[] = [];
 	let chats: ChatListItem[] = [];
@@ -12,22 +18,60 @@
 	let isLoading = false;
 	let streamingMessage = '';
 	let isSidebarMinimized = false;
+	let showKnowledgeModal = false;
+	let currentChatTitle = '';
+	let viewMode: 'chat' | 'knowledge' = 'chat';
+	
+	// Notification system
+	let notifications: Array<{
+		id: number;
+		message: string;
+		type: 'success' | 'error' | 'info';
+	}> = [];
+	let notificationId = 0;
 
 	onMount(async () => {
-		await loadChats();
+		// Use server-provided data instead of making client-side API calls
+		chats = data.chats || [];
+		console.log('Loaded chats from server:', chats);
 	});
-
-	async function loadChats() {
-		try {
-			chats = await apiClient.getChats();
-		} catch (error) {
-			console.error('Failed to load chats:', error);
-		}
+	
+	function showNotification(message: string, type: 'success' | 'error' | 'info' = 'info') {
+		const id = ++notificationId;
+		notifications = [...notifications, { id, message, type }];
+	}
+	
+	function removeNotification(id: number) {
+		notifications = notifications.filter(n => n.id !== id);
 	}
 
+	// No longer needed - using server-side data
+	// async function loadChats() {
+	//   try {
+	//     chats = await apiClient.getChats();
+	//     console.log('Loaded chats:', chats);
+	//   } catch (error) {
+	//     console.error('Failed to load chats:', error);
+	//   }
+	// }
+
+	const generateUUID = () => {
+	  if (crypto.randomUUID) {
+	    return crypto.randomUUID();
+	  }
+	  // Fallback implementation
+	  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+	    const r = Math.random() * 16 | 0;
+	    const v = c == 'x' ? r : (r & 0x3 | 0x8);
+	    return v.toString(16);
+	  });
+	};
+
+
 	async function handleSendMessage(event: CustomEvent<{ content: string }>) {
+		console.log("BEfore calling random UUID");
 		const userMessage: Message = {
-			id: crypto.randomUUID(),
+			id: generateUUID(),
 			content: event.detail.content,
 			role: 'user',
 			timestamp: new Date(),
@@ -39,8 +83,33 @@
 		streamingMessage = '';
 
 		try {
-			const stream = await apiClient.sendMessage(event.detail.content, currentChatId || undefined);
-			const reader = stream.getReader();
+			console.log('Sending message to backend');
+			
+			// Use proxy to call backend service (streaming needs direct connection)
+			const response = await fetch('/api/v1/chat', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					message: event.detail.content,
+					chat_id: currentChatId || null
+				})
+			});
+			
+			console.log('Message response:', response.status, response.statusText);
+			
+			if (!response.ok) {
+				throw new Error(`Failed to send message: ${response.status} ${response.statusText}`);
+			}
+			
+			if (!response.body) {
+				throw new Error('No response body received');
+			}
+			
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = '';
 			
 			let assistantMessage: Message | null = null;
 			
@@ -48,37 +117,59 @@
 				const { done, value } = await reader.read();
 				if (done) break;
 
-				const response: StreamResponse = value;
+				// Decode the bytes to text and add to buffer
+				buffer += decoder.decode(value, { stream: true });
 				
-				if (response.type === 'content' && response.content) {
-					streamingMessage += response.content;
-				} else if (response.type === 'done') {
-					// Create the final assistant message
-					assistantMessage = {
-						id: response.message_id || crypto.randomUUID(),
-						content: streamingMessage,
-						role: 'assistant',
-						timestamp: new Date(),
-						chat_id: response.chat_id || currentChatId || ''
-					};
-					
-					messages = [...messages, assistantMessage];
-					streamingMessage = '';
-					
-					// Update chat ID if this was a new chat
-					if (response.chat_id && !currentChatId) {
-						currentChatId = response.chat_id;
+				// Process complete lines from the buffer
+				const lines = buffer.split('\n');
+				buffer = lines.pop() || ''; // Keep the incomplete line in the buffer
+				
+				for (const line of lines) {
+					if (line.startsWith('data: ')) {
+						try {
+							const jsonStr = line.slice(6); // Remove 'data: '
+							if (jsonStr.trim() === '') continue; // Skip empty data lines
+							
+							const streamResponse: StreamResponse = JSON.parse(jsonStr);
+							console.log('Parsed stream response:', streamResponse);
+							
+							if (streamResponse.type === 'content' && streamResponse.content) {
+								streamingMessage += streamResponse.content;
+							} else if (streamResponse.type === 'done') {
+								// Create the final assistant message
+								assistantMessage = {
+									id: streamResponse.message_id || generateUUID(),
+									content: streamingMessage,
+									role: 'assistant',
+									timestamp: new Date(),
+									chat_id: streamResponse.chat_id || currentChatId || ''
+								};
+								
+								messages = [...messages, assistantMessage];
+								streamingMessage = '';
+								
+								// Update chat ID if this was a new chat
+								if (streamResponse.chat_id && !currentChatId) {
+									currentChatId = streamResponse.chat_id;
+								}
+							}
+						} catch (error) {
+							console.error('Error parsing stream response:', error);
+						}
 					}
-					
-					// Reload chats to update sidebar
-					await loadChats();
-				} else if (response.type === 'error') {
-					console.error('Streaming error:', response.error);
-					streamingMessage = '';
 				}
 			}
+			
+			// TODO: Reload chats to update sidebar (implement server-side reload)
+			console.log('Message sending completed');
 		} catch (error) {
 			console.error('Failed to send message:', error);
+			console.error('Error type:', error.constructor.name);
+			console.error('Error message:', error.message);
+			console.error('Full error object:', error);
+			
+			// Show user-friendly error message
+			showNotification(`Failed to send message: ${error.message || 'Network error'}`, 'error');
 			streamingMessage = '';
 		} finally {
 			isLoading = false;
@@ -92,21 +183,51 @@
 	}
 
 	async function handleSelectChat(event: CustomEvent<{ id: string }>) {
+		console.log('[handleSelectChat] Event triggered with ID:', event.detail.id);
 		currentChatId = event.detail.id;
 		streamingMessage = '';
 		
 		try {
-			const chat = await apiClient.getChat(event.detail.id);
-			messages = chat.messages;
+			console.log('[handleSelectChat] Loading chat messages for:', event.detail.id);
+			
+			// Use direct API call through proxy
+			const response = await fetch(`/api/v1/chats/${event.detail.id}`);
+			
+			console.log('[handleSelectChat] Response status:', response.status);
+			
+			if (!response.ok) {
+				throw new Error(`Failed to load chat: ${response.status}`);
+			}
+			
+			// Direct JSON parsing - no SvelteKit serialization issues
+			const chat = await response.json();
+			console.log('[handleSelectChat] Raw chat data:', chat);
+			messages = chat.messages || [];
+			currentChatTitle = chat.title || '';
+			console.log('[handleSelectChat] Set messages:', messages.length, 'messages');
+			console.log('[handleSelectChat] Set title:', currentChatTitle);
+			console.log('[handleSelectChat] Messages array:', messages);
+			
+			// Force reactivity update
+			messages = [...messages];
 		} catch (error) {
-			console.error('Failed to load chat messages:', error);
+			console.error('[handleSelectChat] Error:', error);
+			showNotification('Failed to load chat messages', 'error');
 			messages = [];
 		}
 	}
 
 	async function handleDeleteChat(event: CustomEvent<{ id: string }>) {
 		try {
-			await apiClient.deleteChat(event.detail.id);
+			console.log('Deleting chat:', event.detail.id);
+			
+			const response = await fetch(`/api/v1/chats/${event.detail.id}`, {
+				method: 'DELETE'
+			});
+			
+			if (!response.ok) {
+				throw new Error(`Failed to delete chat: ${response.status}`);
+			}
 			
 			// Remove from local state
 			chats = chats.filter(chat => chat.id !== event.detail.id);
@@ -127,6 +248,66 @@
 	async function handleSuggestedPrompt(prompt: string) {
 		await handleSendMessage(new CustomEvent('send', { detail: { content: prompt } }));
 	}
+
+	async function handleSaveToKnowledge() {
+		if (!currentChatId) {
+			showNotification('No chat selected to save', 'error');
+			return;
+		}
+
+		showKnowledgeModal = true;
+	}
+
+	async function handleSaveEditedKnowledge(event: CustomEvent<{ title: string; content: any; mode: string }>) {
+		if (!currentChatId) {
+			return;
+		}
+
+		try {
+			const { title, content, mode } = event.detail;
+			
+			const body: any = {
+				title,
+				save_mode: mode === 'document' ? 'content' : 'messages'
+			};
+			
+			if (typeof content === 'string') {
+				body.content = content;
+			} else {
+				body.content = content;
+			}
+			
+			const response = await fetch(`/api/v1/chats/${currentChatId}/save-to-knowledge`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify(body)
+			});
+			
+			if (!response.ok) {
+				throw new Error(`Failed to save: ${response.status}`);
+			}
+			
+			const result = await response.json();
+			
+			showNotification(`Successfully saved "${title}" to knowledge base! Created ${result.chunks_created} chunks.`, 'success');
+			showKnowledgeModal = false;
+		} catch (error) {
+			console.error('Failed to save chat to knowledge:', error);
+			showNotification('Failed to save chat to knowledge base', 'error');
+		}
+	}
+
+	function handleCancelKnowledgeEdit() {
+		showKnowledgeModal = false;
+	}
+	
+	function toggleViewMode() {
+		console.log('[toggleViewMode] Current viewMode:', viewMode);
+		viewMode = viewMode === 'chat' ? 'knowledge' : 'chat';
+		console.log('[toggleViewMode] New viewMode:', viewMode);
+	}
 </script>
 
 <div class="flex h-screen bg-gradient-to-br from-slate-50 to-blue-50/30 p-4 gap-4">
@@ -140,11 +321,42 @@
 			on:selectChat={handleSelectChat}
 			on:deleteChat={handleDeleteChat}
 			on:toggleMinimize={handleToggleMinimize}
+			on:toggleKnowledgeBase={toggleViewMode}
 		/>
 	</div>
 
-	<!-- Main Chat Area -->
-	<div class="flex-1 flex flex-col bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-white/20 backdrop-blur-sm overflow-hidden">
+	<!-- Main Content Area -->
+	<div class="flex-1 {viewMode === 'knowledge' ? 'flex' : 'flex flex-col'} bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-white/20 backdrop-blur-sm overflow-hidden" style="height: calc(100vh - 2rem);">
+		
+		{#if viewMode === 'knowledge'}
+			<!-- Knowledge Base View -->
+			<KnowledgeBase 
+				documents={data.documents || []}
+				on:close={() => viewMode = 'chat'} 
+				on:notification={(e) => showNotification(e.detail.message, e.detail.type)}
+			/>
+		{:else}
+			<!-- Chat View -->
+		
+		<!-- Chat Header (only show when there are messages) -->
+		{#if currentChatId && messages.length > 0}
+			<div class="flex items-center justify-between px-6 py-3 border-b border-gray-100 bg-gray-50/50">
+				<div class="text-sm text-gray-600">
+					Current conversation ({messages.length} messages)
+				</div>
+				<button 
+					on:click={handleSaveToKnowledge}
+					class="flex items-center gap-2 px-3 py-1.5 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors duration-200"
+					title="Save this conversation to knowledge base for future reference"
+				>
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3-3m0 0l-3 3m3-3v12" />
+					</svg>
+					Save to Knowledge
+				</button>
+			</div>
+		{/if}
+		
 		<!-- Chat Messages -->
 		<div class="flex-1 overflow-y-auto">
 			{#if messages.length === 0 && !isLoading && !streamingMessage}
@@ -237,5 +449,25 @@
 			disabled={isLoading || streamingMessage !== ''}
 			on:send={handleSendMessage}
 		/>
+		{/if}
 	</div>
 </div>
+
+<!-- Knowledge Edit Modal -->
+{#if showKnowledgeModal}
+	<KnowledgeEditModal 
+		messages={messages}
+		chatTitle={currentChatTitle}
+		on:save={handleSaveEditedKnowledge}
+		on:cancel={handleCancelKnowledgeEdit}
+	/>
+{/if}
+
+<!-- Notifications -->
+{#each notifications as notification (notification.id)}
+	<Notification
+		message={notification.message}
+		type={notification.type}
+		onClose={() => removeNotification(notification.id)}
+	/>
+{/each}
