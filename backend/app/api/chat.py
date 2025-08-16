@@ -27,13 +27,22 @@ async def get_chats(db: AsyncSession = Depends(get_db)):
     return await ChatService.get_chats(db)
 
 
-@router.post("/chats", response_model=Chat)
+@router.post("/chats")
 async def create_chat(
     chat_data: ChatCreate, 
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new chat"""
-    return await ChatService.create_chat(db, chat_data)
+    db_chat = await ChatService.create_chat(db, chat_data)
+    
+    # Return manual dict instead of relying on Pydantic model conversion
+    return {
+        "id": str(db_chat.id),
+        "title": db_chat.title,
+        "created_at": db_chat.created_at.isoformat() if db_chat.created_at else None,
+        "updated_at": db_chat.updated_at.isoformat() if db_chat.updated_at else None,
+        "messages": []  # New chats have no messages
+    }
 
 
 @router.get("/chats/{chat_id}", response_model=Chat)
@@ -448,6 +457,114 @@ async def get_document(
         raise HTTPException(status_code=500, detail=f"Failed to fetch document: {str(e)}")
 
 
+@router.get("/documents/{document_id}/chunks")
+async def get_document_chunks(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get a document with individual chunks for editing"""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.chat import Document
+    
+    try:
+        result = await db.execute(
+            select(Document)
+            .where(Document.id == document_id)
+            .options(selectinload(Document.chunks))
+        )
+        document = result.scalar_one_or_none()
+        
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        # Return chunks individually
+        sorted_chunks = sorted(document.chunks, key=lambda x: x.chunk_index)
+        
+        return {
+            "id": str(document.id),
+            "title": document.title,
+            "source_type": document.source_type,
+            "source_id": document.source_id,
+            "chunks": [
+                {
+                    "id": str(chunk.id),
+                    "content": chunk.content,
+                    "chunk_index": chunk.chunk_index,
+                    "token_count": chunk.token_count,
+                    "summary": chunk.summary,
+                    "metadata": json.loads(chunk.chunk_metadata) if chunk.chunk_metadata else {}
+                }
+                for chunk in sorted_chunks
+            ],
+            "created_at": document.created_at.isoformat() if document.created_at else None,
+            "updated_at": document.updated_at.isoformat() if document.updated_at else None,
+            "metadata": json.loads(document.document_metadata) if document.document_metadata else {}
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch document chunks: {str(e)}")
+
+
+@router.put("/documents/{document_id}/chunks")
+async def update_document_chunks(
+    document_id: UUID,
+    chunks_update: dict,
+    db: AsyncSession = Depends(get_db)
+):
+    """Update chunks in a document"""
+    from sqlalchemy import select, update
+    from app.models.chat import Document, DocumentChunk
+    
+    try:
+        # Verify document exists
+        result = await db.execute(
+            select(Document).where(Document.id == document_id)
+        )
+        document = result.scalar_one_or_none()
+        
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        # Update title if provided
+        if "title" in chunks_update:
+            document.title = chunks_update["title"]
+        
+        # Update chunks
+        updated_chunks = []
+        if "chunks" in chunks_update:
+            for chunk_data in chunks_update["chunks"]:
+                chunk_id = UUID(chunk_data["id"])
+                
+                # Update chunk content
+                result = await db.execute(
+                    select(DocumentChunk).where(DocumentChunk.id == chunk_id)
+                )
+                chunk = result.scalar_one_or_none()
+                
+                if chunk is not None and chunk.document_id == document_id:
+                    chunk.content = chunk_data["content"]
+                    
+                    # Re-generate embedding for updated chunk
+                    chunk.embedding = embedding_service.embed_text(chunk_data["content"])
+                    
+                    # Update token count
+                    chunk.token_count = len(chunk_data["content"].split())  # Simple approximation
+                    
+                    updated_chunks.append(str(chunk_id))
+        
+        await db.commit()
+        
+        return {
+            "message": "Document updated successfully",
+            "updated_chunks": updated_chunks,
+            "document_id": str(document_id)
+        }
+        
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update document: {str(e)}")
+
+
 async def process_document_background(
     file_path: str,
     original_filename: str,
@@ -488,7 +605,6 @@ async def upload_document(
     """Upload a document file and process it asynchronously in the background"""
     
     # Validate file type
-    # import pdb; pdb.set_trace()
     allowed_types = {
         'application/pdf': '.pdf',
         'text/plain': '.txt',

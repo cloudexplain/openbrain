@@ -6,8 +6,8 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import text
 import json
 
-from app.models.chat import Chat, Message
-from app.schemas.chat import ChatCreate, MessageCreate, ChatListItem
+from app.models.chat import Chat as ChatModel, Message as MessageModel
+from app.schemas.chat import ChatCreate, MessageCreate, ChatListItem, Chat, Message
 from app.services.azure_openai import azure_openai_service
 from app.services.embedding_service import embedding_service
 
@@ -23,7 +23,7 @@ class ChatService:
     @staticmethod
     async def create_chat(db: AsyncSession, chat_data: ChatCreate) -> Chat:
         """Create a new chat"""
-        db_chat = Chat(title=chat_data.title)
+        db_chat = ChatModel(title=chat_data.title)
         db.add(db_chat)
         await db.commit()
         await db.refresh(db_chat)
@@ -33,9 +33,9 @@ class ChatService:
     async def get_chat(db: AsyncSession, chat_id: UUID) -> Optional[Chat]:
         """Get a chat by ID with messages"""
         result = await db.execute(
-            select(Chat)
-            .options(selectinload(Chat.messages))
-            .where(Chat.id == chat_id)
+            select(ChatModel)
+            .options(selectinload(ChatModel.messages))
+            .where(ChatModel.id == chat_id)
         )
         return result.scalar_one_or_none()
     
@@ -84,7 +84,7 @@ class ChatService:
     @staticmethod
     async def delete_chat(db: AsyncSession, chat_id: UUID) -> bool:
         """Delete a chat and all its messages"""
-        result = await db.execute(select(Chat).where(Chat.id == chat_id))
+        result = await db.execute(select(ChatModel).where(ChatModel.id == chat_id))
         chat = result.scalar_one_or_none()
         
         if chat:
@@ -103,7 +103,7 @@ class ChatService:
         # Count tokens
         token_count = azure_openai_service.count_tokens(message_data.content)
         
-        db_message = Message(
+        db_message = MessageModel(
             chat_id=chat_id,
             content=message_data.content,
             role=message_data.role,
@@ -116,9 +116,9 @@ class ChatService:
         
         # Update chat's updated_at timestamp
         await db.execute(
-            select(Chat).where(Chat.id == chat_id)
+            select(ChatModel).where(ChatModel.id == chat_id)
         )
-        chat_result = await db.execute(select(Chat).where(Chat.id == chat_id))
+        chat_result = await db.execute(select(ChatModel).where(ChatModel.id == chat_id))
         chat = chat_result.scalar_one_or_none()
         if chat:
             await db.commit()  # This will trigger the onupdate for updated_at

@@ -77,7 +77,6 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
-      - backend_venv:/app/.venv
       - uploads:/app/uploads
     networks:
       - secondbrain-network
@@ -87,8 +86,8 @@ services:
       db-init:
         condition: service_completed_successfully
     restart: unless-stopped
-    # command: sleep infinity
-    command: ./startup.sh
+    command: sleep infinity
+    # command: ./startup.sh
     # command: >
     #   bash -c "
     #     apt-get update && apt-get install -y gcc curl &&

@@ -26,6 +26,19 @@
 	let editMode: 'messages' | 'document' = 'messages';
 	let hoveredMessageIndex: number | null = null;
 	
+	function focusAndSelect(node: HTMLDivElement) {
+		node.focus();
+		const range = document.createRange();
+		range.selectNodeContents(node);
+		const selection = window.getSelection();
+		selection?.removeAllRanges();
+		selection?.addRange(range);
+		
+		return {
+			destroy() {}
+		};
+	}
+	
 	function deleteMessage(index: number) {
 		editableMessages = editableMessages.filter((_, i) => i !== index);
 		updateDocumentContent();
@@ -40,6 +53,24 @@
 		editableMessages[index].isEditing = false;
 		editableMessages = editableMessages;
 		updateDocumentContent();
+	}
+	
+	function handleEditableKeydown(event: KeyboardEvent, index: number) {
+		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+			event.preventDefault();
+			finishEditingMessage(index);
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			const target = event.currentTarget as HTMLDivElement;
+			target.textContent = editableMessages[index].originalContent;
+			editableMessages[index].content = editableMessages[index].originalContent;
+			finishEditingMessage(index);
+		}
+	}
+	
+	function handleEditableInput(event: Event, index: number) {
+		const target = event.currentTarget as HTMLDivElement;
+		editableMessages[index].content = target.textContent || '';
 	}
 	
 	function updateMessageContent(index: number, newContent: string) {
@@ -152,23 +183,22 @@
 									on:dblclick={() => startEditingMessage(index)}
 								>
 									{#if msg.isEditing}
-										<textarea
-											bind:value={msg.content}
-											on:blur={() => finishEditingMessage(index)}
-											on:keydown={(e) => {
-												if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-													finishEditingMessage(index);
-												} else if (e.key === 'Escape') {
-													msg.content = msg.originalContent;
-													finishEditingMessage(index);
-												}
-											}}
-											class="w-full bg-transparent border-none resize-none focus:outline-none text-inherit placeholder-gray-400"
-											rows="3"
-											autofocus
-										/>
-										<div class="text-xs opacity-75 mt-2">
-											Press Ctrl+Enter to save, Esc to cancel
+										<div>
+											<div
+												contenteditable="true"
+												on:blur={() => finishEditingMessage(index)}
+												on:input={(e) => handleEditableInput(e, index)}
+												on:keydown={(e) => handleEditableKeydown(e, index)}
+												class="whitespace-pre-wrap focus:outline-none"
+												role="textbox"
+												aria-multiline="true"
+												use:focusAndSelect
+											>
+												{msg.content}
+											</div>
+											<div class="text-xs opacity-75 mt-2">
+												Press Ctrl+Enter to save, Esc to cancel
+											</div>
 										</div>
 									{:else}
 										<div class="whitespace-pre-wrap">

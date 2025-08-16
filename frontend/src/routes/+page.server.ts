@@ -202,6 +202,69 @@ export const actions: Actions = {
 		}
 	},
 	
+	getDocumentChunks: async ({ request }) => {
+		const formData = await request.formData();
+		const documentId = formData.get('documentId') as string;
+		
+		console.log('[+page.server.ts] Getting document chunks:', documentId);
+		
+		try {
+			const response = await fetch(`http://backend:8000/api/v1/documents/${documentId}/chunks`);
+			
+			if (!response.ok) {
+				return fail(response.status, { error: `Failed to load document chunks: ${response.statusText}` });
+			}
+			
+			const documentWithChunks = await response.json();
+			console.log('[+page.server.ts] Got document chunks:', documentWithChunks);
+			
+			// Return as JSON string to avoid flattening
+			return { documentWithChunksData: JSON.stringify(documentWithChunks) };
+		} catch (error) {
+			console.error('[+page.server.ts] Error loading document chunks:', error);
+			return fail(500, { error: 'Internal server error' });
+		}
+	},
+	
+	updateDocumentChunks: async ({ request }) => {
+		const formData = await request.formData();
+		const documentId = formData.get('documentId') as string;
+		const title = formData.get('title') as string;
+		const chunksJson = formData.get('chunks') as string;
+		
+		console.log('[+page.server.ts] Updating document chunks:', documentId);
+		
+		try {
+			const chunks = JSON.parse(chunksJson);
+			
+			const response = await fetch(`http://backend:8000/api/v1/documents/${documentId}/chunks`, {
+				method: 'PUT',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					title,
+					chunks
+				})
+			});
+			
+			if (!response.ok) {
+				const error = await response.text();
+				console.error('[+page.server.ts] Update chunks failed:', error);
+				return fail(response.status, { error: `Failed to update document: ${response.statusText}` });
+			}
+			
+			const result = await response.json();
+			console.log('[+page.server.ts] Update result:', result);
+			
+			// Return as JSON string to avoid flattening
+			return { updateResult: JSON.stringify(result) };
+		} catch (error) {
+			console.error('[+page.server.ts] Error updating document chunks:', error);
+			return fail(500, { error: 'Internal server error' });
+		}
+	},
+	
 	saveChatToKnowledge: async ({ request }) => {
 		const formData = await request.formData();
 		const chatId = formData.get('chatId') as string;
