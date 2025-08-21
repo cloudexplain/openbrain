@@ -79,6 +79,47 @@ export const actions: Actions = {
 		}
 	},
 	
+	uploadMultipleDocuments: async ({ request }) => {
+		console.log('[+page.server.ts] Upload multiple documents action');
+		
+		try {
+			const formData = await request.formData();
+			const files = formData.getAll('files') as File[];
+			
+			if (!files || files.length === 0) {
+				return fail(400, { error: 'No files provided' });
+			}
+			
+			console.log('[+page.server.ts] Uploading files:', files.map(f => f.name));
+			
+			// Forward to backend
+			const backendFormData = new FormData();
+			files.forEach(file => {
+				backendFormData.append('files', file);
+			});
+			
+			console.log("Calling upload multiple documents to", 'http://backend:8000/api/v1/documents/upload-multiple');
+			const response = await fetch('http://backend:8000/api/v1/documents/upload-multiple', {
+				method: 'POST',
+				body: backendFormData
+			});
+			
+			if (!response.ok) {
+				const error = await response.text();
+				console.error('[+page.server.ts] Multi-upload failed:', error);
+				return fail(response.status, { error: `Upload failed: ${response.statusText}` });
+			}
+			
+			const result = await response.json();
+			console.log('[+page.server.ts] Multi-upload success:', result);
+			
+			return { success: true, ...result };
+		} catch (error) {
+			console.error('[+page.server.ts] Multi-upload error:', error);
+			return fail(500, { error: 'Internal server error' });
+		}
+	},
+	
 	getDocument: async ({ request }) => {
 		const formData = await request.formData();
 		const documentId = formData.get('documentId') as string;
@@ -198,6 +239,69 @@ export const actions: Actions = {
 			return { success: true };
 		} catch (error) {
 			console.error('[+page.server.ts] Error deleting chat:', error);
+			return fail(500, { error: 'Internal server error' });
+		}
+	},
+	
+	getDocumentChunks: async ({ request }) => {
+		const formData = await request.formData();
+		const documentId = formData.get('documentId') as string;
+		
+		console.log('[+page.server.ts] Getting document chunks:', documentId);
+		
+		try {
+			const response = await fetch(`http://backend:8000/api/v1/documents/${documentId}/chunks`);
+			
+			if (!response.ok) {
+				return fail(response.status, { error: `Failed to load document chunks: ${response.statusText}` });
+			}
+			
+			const documentWithChunks = await response.json();
+			console.log('[+page.server.ts] Got document chunks:', documentWithChunks);
+			
+			// Return as JSON string to avoid flattening
+			return { documentWithChunksData: JSON.stringify(documentWithChunks) };
+		} catch (error) {
+			console.error('[+page.server.ts] Error loading document chunks:', error);
+			return fail(500, { error: 'Internal server error' });
+		}
+	},
+	
+	updateDocumentChunks: async ({ request }) => {
+		const formData = await request.formData();
+		const documentId = formData.get('documentId') as string;
+		const title = formData.get('title') as string;
+		const chunksJson = formData.get('chunks') as string;
+		
+		console.log('[+page.server.ts] Updating document chunks:', documentId);
+		
+		try {
+			const chunks = JSON.parse(chunksJson);
+			
+			const response = await fetch(`http://backend:8000/api/v1/documents/${documentId}/chunks`, {
+				method: 'PUT',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					title,
+					chunks
+				})
+			});
+			
+			if (!response.ok) {
+				const error = await response.text();
+				console.error('[+page.server.ts] Update chunks failed:', error);
+				return fail(response.status, { error: `Failed to update document: ${response.statusText}` });
+			}
+			
+			const result = await response.json();
+			console.log('[+page.server.ts] Update result:', result);
+			
+			// Return as JSON string to avoid flattening
+			return { updateResult: JSON.stringify(result) };
+		} catch (error) {
+			console.error('[+page.server.ts] Error updating document chunks:', error);
 			return fail(500, { error: 'Internal server error' });
 		}
 	},

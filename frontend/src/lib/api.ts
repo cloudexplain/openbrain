@@ -28,12 +28,23 @@ export interface ChatListItem {
 	message_count: number;
 }
 
+export interface DocumentReference {
+	id: string;
+	title: string;
+	source_type: string;
+	chunk_count: number;
+	max_similarity: number;
+	avg_similarity: number;
+	tags: any[];
+}
+
 export interface StreamResponse {
 	type: 'content' | 'done' | 'error';
 	content?: string;
 	message_id?: string;
 	chat_id?: string;
 	error?: string;
+	document_references?: DocumentReference[];
 }
 
 export interface Document {
@@ -51,6 +62,19 @@ export interface Document {
 
 export interface DocumentDetail extends Document {
 	content: string;
+}
+
+export interface DocumentChunk {
+	id: string;
+	content: string;
+	chunk_index: number;
+	token_count: number;
+	summary?: string;
+	metadata?: Record<string, any>;
+}
+
+export interface DocumentWithChunks extends Document {
+	chunks: DocumentChunk[];
 }
 
 class ApiClient {
@@ -273,6 +297,26 @@ class ApiClient {
 
 	async getDocument(documentId: string): Promise<DocumentDetail> {
 		const response = await this.request(`/documents/${documentId}`);
+		return await response.json();
+	}
+
+	async getDocumentWithChunks(documentId: string): Promise<DocumentWithChunks> {
+		const response = await this.request(`/documents/${documentId}/chunks`);
+		return await response.json();
+	}
+
+	async updateDocumentChunks(
+		documentId: string, 
+		title: string,
+		chunks: DocumentChunk[]
+	): Promise<{message: string, updated_chunks: string[], document_id: string}> {
+		const response = await this.request(`/documents/${documentId}/chunks`, {
+			method: 'PUT',
+			body: JSON.stringify({
+				title: title,
+				chunks: chunks
+			})
+		});
 		return await response.json();
 	}
 

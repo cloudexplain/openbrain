@@ -1,13 +1,14 @@
-from typing import List, Optional, AsyncGenerator
+from typing import List, Optional, AsyncGenerator, Set
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import text
 import json
+import re
 
-from app.models.chat import Chat, Message
-from app.schemas.chat import ChatCreate, MessageCreate, ChatListItem
+from app.models.chat import Chat as ChatModel, Message as MessageModel, Tag, DocumentTag
+from app.schemas.chat import ChatCreate, MessageCreate, ChatListItem, Chat, Message
 from app.services.azure_openai import azure_openai_service
 from app.services.embedding_service import embedding_service
 
@@ -20,10 +21,83 @@ class ChatService:
         # Remove <system_context>...</system_context> tags and their content
         pattern = r'<system_context>.*?</system_context>\s*\n*'
         return re.sub(pattern, '', content, flags=re.DOTALL).strip()
+    
+    @staticmethod
+    def extract_tags_from_message(message: str) -> Set[str]:
+        """Extract tag references from a message (e.g., #tagname or [tag:tagname])"""
+        tags = set()
+        
+        # Pattern 1: #tagname (alphanumeric and underscore, dash)
+        hashtag_pattern = r'#([\w-]+)'
+        tags.update(re.findall(hashtag_pattern, message))
+        
+        # Pattern 2: [tag:tagname]
+        bracket_pattern = r'\[tag:([\w-]+)\]'
+        tags.update(re.findall(bracket_pattern, message))
+        
+        return tags
+    
+    @staticmethod
+    def extract_document_references_from_message(message: str) -> Set[str]:
+        """Extract document references from a message (e.g., /doc "Document Name" or /doc DocumentName)"""
+        documents = set()
+        
+        # Pattern 1: /doc "Document Name" or /document "Document Name"
+        quoted_pattern = r'/(?:doc|document)\s+"([^"]+)"'
+        documents.update(re.findall(quoted_pattern, message))
+        
+        # Pattern 2: /doc DocumentName or /document DocumentName (single word)
+        unquoted_pattern = r'/(?:doc|document)\s+([^\s]+)'
+        unquoted_matches = re.findall(unquoted_pattern, message)
+        # Filter out matches that are already quoted (to avoid duplicates)
+        for match in unquoted_matches:
+            if not match.startswith('"'):
+                documents.add(match)
+        
+        return documents
+    
+    @staticmethod
+    async def get_tag_ids_by_names(db: AsyncSession, tag_names: Set[str]) -> List[UUID]:
+        """Get tag IDs from tag names"""
+        if not tag_names:
+            return []
+        
+        # Convert to lowercase for case-insensitive matching
+        lower_names = [name.lower() for name in tag_names]
+        
+        result = await db.execute(
+            select(Tag.id).where(
+                Tag.name.in_(tag_names) | 
+                Tag.name.in_(lower_names)
+            )
+        )
+        return list(result.scalars().all())
+    
+    @staticmethod
+    async def get_document_ids_by_titles(db: AsyncSession, document_titles: Set[str]) -> List[UUID]:
+        """Get document IDs from document titles"""
+        if not document_titles:
+            return []
+        
+        from app.models.chat import Document
+        from sqlalchemy import func, or_
+        
+        # Build conditions for case-insensitive matching on both title and filename
+        conditions = []
+        for title in document_titles:
+            conditions.extend([
+                func.lower(Document.title) == title.lower(),
+                func.lower(Document.filename) == title.lower()
+            ])
+        
+        result = await db.execute(
+            select(Document.id).where(or_(*conditions))
+        )
+        return list(result.scalars().all())
     @staticmethod
     async def create_chat(db: AsyncSession, chat_data: ChatCreate) -> Chat:
         """Create a new chat"""
-        db_chat = Chat(title=chat_data.title)
+        db_chat = ChatModel(title=chat_data.title)
         db.add(db_chat)
         await db.commit()
         await db.refresh(db_chat)
@@ -33,9 +107,9 @@ class ChatService:
     async def get_chat(db: AsyncSession, chat_id: UUID) -> Optional[Chat]:
         """Get a chat by ID with messages"""
         result = await db.execute(
-            select(Chat)
-            .options(selectinload(Chat.messages))
-            .where(Chat.id == chat_id)
+            select(ChatModel)
+            .options(selectinload(ChatModel.messages))
+            .where(ChatModel.id == chat_id)
         )
         return result.scalar_one_or_none()
     
@@ -84,7 +158,7 @@ class ChatService:
     @staticmethod
     async def delete_chat(db: AsyncSession, chat_id: UUID) -> bool:
         """Delete a chat and all its messages"""
-        result = await db.execute(select(Chat).where(Chat.id == chat_id))
+        result = await db.execute(select(ChatModel).where(ChatModel.id == chat_id))
         chat = result.scalar_one_or_none()
         
         if chat:
@@ -103,7 +177,7 @@ class ChatService:
         # Count tokens
         token_count = azure_openai_service.count_tokens(message_data.content)
         
-        db_message = Message(
+        db_message = MessageModel(
             chat_id=chat_id,
             content=message_data.content,
             role=message_data.role,
@@ -116,9 +190,9 @@ class ChatService:
         
         # Update chat's updated_at timestamp
         await db.execute(
-            select(Chat).where(Chat.id == chat_id)
+            select(ChatModel).where(ChatModel.id == chat_id)
         )
-        chat_result = await db.execute(select(Chat).where(Chat.id == chat_id))
+        chat_result = await db.execute(select(ChatModel).where(ChatModel.id == chat_id))
         chat = chat_result.scalar_one_or_none()
         if chat:
             await db.commit()  # This will trigger the onupdate for updated_at
@@ -147,6 +221,14 @@ class ChatService:
             MessageCreate(content=user_message, role="user")
         )
         
+        # Extract tags from user message
+        tag_names = ChatService.extract_tags_from_message(user_message)
+        tag_ids = await ChatService.get_tag_ids_by_names(db, tag_names) if tag_names else []
+        
+        # Extract document references from user message
+        document_titles = ChatService.extract_document_references_from_message(user_message)
+        document_ids = await ChatService.get_document_ids_by_titles(db, document_titles) if document_titles else []
+        
         # Perform similarity search to retrieve relevant context if RAG is enabled
         relevant_chunks = []
         if use_rag:
@@ -154,9 +236,17 @@ class ChatService:
                 db=db,
                 query=user_message,
                 limit=rag_limit,
-                similarity_threshold=rag_threshold
+                similarity_threshold=rag_threshold,
+                tag_ids=tag_ids if tag_ids else None,
+                document_ids=document_ids if document_ids else None
             )
             print(f"\nTHESE ARE THE RELEVANT CHUNKS: {relevant_chunks}!")
+            if tag_names:
+                print(f"FILTERED BY TAGS: {tag_names}")
+                print(f"TAG IDS FOUND: {tag_ids}")
+            if document_titles:
+                print(f"FILTERED BY DOCUMENTS: {document_titles}")
+                print(f"DOCUMENT IDS FOUND: {document_ids}")
         
         # Build context from retrieved chunks
         context_parts = []
@@ -196,12 +286,29 @@ class ChatService:
         # Initialize hidden_context for o1-mini models
         hidden_context = ""
         
+        # Base system prompt
+        base_prompt = """You are ChatGPT, a large language model based on the GPT-5 model and trained by OpenAI.
+Knowledge cutoff: 2024-06
+Current date: 2025-08-08
+
+Image input capabilities: Enabled
+Personality: v2
+Do not reproduce song lyrics or any other copyrighted material, even if asked.
+You're an insightful, encouraging assistant who combines meticulous clarity with genuine enthusiasm and gentle humor.
+Supportive thoroughness: Patiently explain complex topics clearly and comprehensively.
+Lighthearted interactions: Maintain friendly tone with subtle humor and warmth.
+Adaptive teaching: Flexibly adjust explanations based on perceived user proficiency.
+Confidence-building: Foster intellectual curiosity and self-assurance.
+
+Do not end with opt-in questions or hedging closers. Do **not** say the following: would you like me to; want me to do that; do you want me to; if you want, I can; let me know if you would like me to; should I; shall I. Ask at most one necessary clarifying question at the start, not the end. If the next step is obvious, do it."""
+        
         # Add system message or convert to user message with hidden tags
         if context_parts:
             # Check if we're using fallback results
             if using_fallback:
                 context_message = (
-                    "You are a helpful assistant with access to a knowledge base. "
+                    base_prompt + "\n\n"
+                    "You have access to a knowledge base. "
                     "The following context was retrieved but may not be highly relevant to the user's question. "
                     "Use the context cautiously and only if it actually helps answer the question. "
                     "Feel free to indicate when the available information is limited or not directly applicable.\n\n"
@@ -209,18 +316,23 @@ class ChatService:
                 )
             else:
                 context_message = (
-                    "You are a helpful assistant with access to a knowledge base. "
+                    base_prompt + "\n\n"
+                    "You have access to a knowledge base. "
                     "Use the following retrieved context to answer the user's questions. "
                     "If the context is relevant, incorporate it into your response. "
                     "If the context is not relevant, you can ignore it.\n\n"
                     + "".join(context_parts)
                 )
-            
-            if supports_system_messages:
-                messages.append({"role": "system", "content": context_message})
-            else:
-                # For o1-mini and similar models, prepare hidden context
-                hidden_context = f"<system_context>\n{context_message}</system_context>\n\n"
+        else:
+            # No context available, just use base prompt
+            context_message = base_prompt
+        
+        # Add the system message or hidden context
+        if supports_system_messages:
+            messages.append({"role": "system", "content": context_message})
+        else:
+            # For o1-mini and similar models, prepare hidden context
+            hidden_context = f"<system_context>\n{context_message}</system_context>\n\n"
         
         # Add conversation history (excluding the message we just added)
         for msg in sorted(chat.messages[:-1], key=lambda x: x.created_at):
@@ -235,11 +347,46 @@ class ChatService:
             
         messages.append({"role": "user", "content": final_user_message})
         
+        # Collect document references for the response
+        document_references = []
+        if relevant_chunks:
+            # Group chunks by document and calculate statistics
+            doc_stats = {}
+            for chunk in relevant_chunks:
+                doc_id = str(chunk.document_id) if hasattr(chunk, 'document_id') else None
+                if doc_id and doc_id not in doc_stats:
+                    doc_stats[doc_id] = {
+                        'id': doc_id,
+                        'title': getattr(chunk, 'document_title', 'Unknown'),
+                        'source_type': getattr(chunk, 'source_type', 'unknown'),
+                        'similarities': [],
+                        'chunk_count': 0
+                    }
+                
+                if doc_id:
+                    doc_stats[doc_id]['chunk_count'] += 1
+                    distance = getattr(chunk, 'search_distance', 0)
+                    similarity = 1.0 - distance if distance is not None else 0.0
+                    doc_stats[doc_id]['similarities'].append(similarity)
+            
+            # Convert to DocumentReference objects
+            for doc_data in doc_stats.values():
+                if doc_data['similarities']:
+                    document_references.append({
+                        'id': doc_data['id'],
+                        'title': doc_data['title'],
+                        'source_type': doc_data['source_type'],
+                        'chunk_count': doc_data['chunk_count'],
+                        'max_similarity': max(doc_data['similarities']),
+                        'avg_similarity': sum(doc_data['similarities']) / len(doc_data['similarities']),
+                        'tags': []  # TODO: Add tags in future iteration
+                    })
+        
         # Generate response
         response_content = ""
         async for chunk in azure_openai_service.generate_chat_completion(messages):
             response_content += chunk
-            yield chunk, None
+            yield (chunk, None)
         
         # Save assistant response
         assistant_msg = await ChatService.add_message(
@@ -248,8 +395,8 @@ class ChatService:
             MessageCreate(content=response_content, role="assistant")
         )
         
-        # Yield final message ID
-        yield "", assistant_msg.id
+        # Yield final message ID with document references
+        yield ("", assistant_msg.id, document_references)
     
     @staticmethod
     async def get_or_create_chat(db: AsyncSession, chat_id: Optional[UUID] = None, title: str = "New Chat") -> Chat:

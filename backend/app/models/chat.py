@@ -58,6 +58,9 @@ class Document(Base):
     
     # Relationship to chunks
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
+    
+    # Relationship to tags through junction table
+    tags = relationship("Tag", secondary="document_tags", back_populates="documents")
 
 
 class DocumentChunk(Base):
@@ -85,3 +88,25 @@ class DocumentChunk(Base):
 
 
 # Chat model now uses Documents for knowledge storage via source_type='chat'
+
+
+class Tag(Base):
+    __tablename__ = "tags"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(50), unique=True, nullable=False)
+    description = Column(Text, nullable=True)
+    color = Column(String(7), default='#808080')  # Hex color for UI
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationship to documents through junction table
+    documents = relationship("Document", secondary="document_tags", back_populates="tags")
+
+
+class DocumentTag(Base):
+    __tablename__ = "document_tags"
+    
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True)
+    tag_id = Column(UUID(as_uuid=True), ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
