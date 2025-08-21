@@ -12,8 +12,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 		console.log(`[Hooks] All Headers:`, Array.from(event.request.headers.entries()));
 	}
 	
-	// Proxy all API requests to backend EXCEPT uploads (use server actions for those)
-	if (event.url.pathname.startsWith('/api') && !event.url.pathname.includes('/upload')) {
+	// Proxy all API requests to backend
+	if (event.url.pathname.startsWith('/api')) {
 		const backendUrl = `http://backend:8000${event.url.pathname}${event.url.search}`;
 		
 		console.log(`[Proxy] MATCHED API PATH`);

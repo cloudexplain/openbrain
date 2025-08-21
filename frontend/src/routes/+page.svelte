@@ -7,7 +7,8 @@
 	import KnowledgeEditModal from "$lib/components/KnowledgeEditModal.svelte";
 	import Notification from "$lib/components/Notification.svelte";
 	import KnowledgeBase from "$lib/components/KnowledgeBase.svelte";
-	import type { Message, ChatListItem, StreamResponse } from "$lib/api";
+	import TagManager from "$lib/components/TagManager.svelte";
+	import type { Message, ChatListItem, StreamResponse, DocumentReference } from "$lib/api";
 
 	// Get data from server
 	export let data;
@@ -20,7 +21,14 @@
 	let isSidebarMinimized = false;
 	let showKnowledgeModal = false;
 	let currentChatTitle = "";
-	let viewMode: "chat" | "knowledge" = "chat";
+	let viewMode: "chat" | "knowledge" | "tags" = "chat";
+	
+	// Track document references for each message
+	let messageDocumentReferences: Map<string, DocumentReference[]> = new Map();
+	
+	// Drag and drop state
+	let isDragOver = false;
+	let uploadingFiles: Array<{name: string, progress: number, status: 'uploading' | 'success' | 'error'}> = [];
 
 	// Notification system
 	let notifications: Array<{
@@ -35,6 +43,35 @@
 		chats = data.chats || [];
 		console.log("Loaded chats from server:", chats);
 	});
+
+	async function reloadChats() {
+		try {
+			const response = await fetch('/api/v1/chats');
+			if (response.ok) {
+				const loadedChats = await response.json();
+				if (Array.isArray(loadedChats)) {
+					chats = loadedChats;
+				}
+			}
+		} catch (error) {
+			console.error('Failed to reload chats:', error);
+		}
+	}
+
+	async function reloadDocuments() {
+		try {
+			const response = await fetch('/api/v1/documents');
+			if (response.ok) {
+				const loadedDocuments = await response.json();
+				if (Array.isArray(loadedDocuments)) {
+					data.documents = loadedDocuments;
+					showNotification('Knowledge base refreshed', 'info');
+				}
+			}
+		} catch (error) {
+			console.error('Failed to reload documents:', error);
+		}
+	}
 
 	function showNotification(
 		message: string,
@@ -175,6 +212,13 @@
 											"",
 									};
 
+								// Store document references if available
+								if (streamResponse.document_references && assistantMessage.id) {
+									messageDocumentReferences.set(assistantMessage.id, streamResponse.document_references);
+									// Force reactivity update
+									messageDocumentReferences = messageDocumentReferences;
+								}
+
 								messages = [
 									...messages,
 									assistantMessage,
@@ -201,7 +245,8 @@
 				}
 			}
 
-			// TODO: Reload chats to update sidebar (implement server-side reload)
+			// Reload chats to update sidebar
+			await reloadChats();
 			console.log("Message sending completed");
 		} catch (error) {
 			console.error("Failed to send message:", error);
@@ -225,39 +270,40 @@
 		if (viewMode === "knowledge") {
 			viewMode = "chat";
 		}
-		
+
 		try {
 			// Create a new chat on the server
-			const response = await fetch('/api/v1/chats', {
-				method: 'POST',
+			const response = await fetch("/api/v1/chats", {
+				method: "POST",
 				headers: {
-					'Content-Type': 'application/json'
+					"Content-Type": "application/json",
 				},
 				body: JSON.stringify({
-					title: 'New Chat'
-				})
+					title: "New Chat",
+				}),
 			});
-			
+
 			if (!response.ok) {
-				throw new Error(`Failed to create chat: ${response.status}`);
+				throw new Error(
+					`Failed to create chat: ${response.status}`,
+				);
 			}
-			
+
 			const newChat = await response.json();
 			console.log("Created new chat:", newChat);
-			
+
 			// Set the new chat as current
 			currentChatId = newChat.id;
 			currentChatTitle = newChat.title;
 			messages = [];
 			streamingMessage = "";
-			
+
 			// Add the new chat to the chats list at the beginning
 			chats = [newChat, ...chats];
-			
 		} catch (error) {
 			console.error("Failed to create new chat:", error);
 			showNotification("Failed to create new chat", "error");
-			
+
 			// Fallback: just clear current state without server call
 			currentChatId = null;
 			messages = [];
@@ -270,12 +316,12 @@
 			"[handleSelectChat] Event triggered with ID:",
 			event.detail.id,
 		);
-		
+
 		// Switch to chat view if we're in knowledge base view
 		if (viewMode === "knowledge") {
 			viewMode = "chat";
 		}
-		
+
 		currentChatId = event.detail.id;
 		streamingMessage = "";
 
@@ -330,6 +376,19 @@
 			);
 			messages = [];
 		}
+	}
+
+	async function handleMessageDeleted(event: CustomEvent<{ messageId: string }>) {
+		// Remove the message from the local messages array
+		messages = messages.filter(msg => msg.id !== event.detail.messageId);
+		
+		// Also remove from document references if it exists
+		messageDocumentReferences.delete(event.detail.messageId);
+		
+		// Force reactivity update
+		messages = [...messages];
+		
+		showNotification("Message deleted successfully", "success");
 	}
 
 	async function handleDeleteChat(event: CustomEvent<{ id: string }>) {
@@ -458,6 +517,144 @@
 		viewMode = viewMode === "chat" ? "knowledge" : "chat";
 		console.log("[toggleViewMode] New viewMode:", viewMode);
 	}
+
+	function toggleTagsMode() {
+		viewMode = viewMode === "tags" ? "chat" : "tags";
+	}
+
+	// Drag and drop handlers
+	function handleDragOver(event: DragEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+		
+		// Check if files are being dragged
+		if (event.dataTransfer?.types.includes('Files')) {
+			isDragOver = true;
+		}
+	}
+
+	function handleDragLeave(event: DragEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+		
+		// Only hide drag overlay if leaving the main container
+		const rect = event.currentTarget.getBoundingClientRect();
+		const x = event.clientX;
+		const y = event.clientY;
+		
+		if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
+			isDragOver = false;
+		}
+	}
+
+	function handleDrop(event: DragEvent) {
+		event.preventDefault();
+		event.stopPropagation();
+		isDragOver = false;
+
+		const files = event.dataTransfer?.files;
+		if (files && files.length > 0) {
+			handleFileUploads(Array.from(files));
+		}
+	}
+
+	async function handleFileUploads(files: File[]) {
+		// Filter for supported file types
+		const allowedTypes = [
+			'application/pdf',
+			'text/plain', 
+			'text/markdown',
+			'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+		];
+
+		const validFiles = files.filter(file => {
+			if (!allowedTypes.includes(file.type)) {
+				showNotification(`File type not supported: ${file.name}`, 'error');
+				return false;
+			}
+			if (file.size > 50 * 1024 * 1024) { // 50MB limit
+				showNotification(`File too large: ${file.name}`, 'error');
+				return false;
+			}
+			return true;
+		});
+
+		if (validFiles.length === 0) return;
+
+		// Initialize upload tracking
+		uploadingFiles = validFiles.map(file => ({
+			name: file.name,
+			progress: 0,
+			status: 'uploading' as const
+		}));
+
+		// Upload files using existing multi-file upload endpoint
+		const formData = new FormData();
+		validFiles.forEach(file => {
+			formData.append('files', file);
+		});
+
+		try {
+			const response = await fetch('/api/v1/documents/upload-multiple', {
+				method: 'POST',
+				body: formData
+			});
+
+			if (!response.ok) {
+				throw new Error(`Upload failed: ${response.status}`);
+			}
+
+			const result = await response.json();
+			
+			// Update upload status
+			uploadingFiles = uploadingFiles.map(file => ({
+				...file,
+				progress: 100,
+				status: 'success' as const
+			}));
+
+			showNotification(`Successfully uploaded ${result.uploads.length} files`, 'success');
+			
+			// Auto-reference uploaded documents in current message (Step 9)
+			const successfulUploads = result.uploads.filter(upload => upload.status === 'processing');
+			if (successfulUploads.length > 0) {
+				handleAutoReferenceDocuments(successfulUploads);
+				
+				// Reload documents after a delay to allow background processing
+				setTimeout(async () => {
+					await reloadDocuments();
+				}, 3000); // Wait 3 seconds for processing
+			}
+			
+		} catch (error) {
+			console.error('Upload failed:', error);
+			uploadingFiles = uploadingFiles.map(file => ({
+				...file,
+				status: 'error' as const
+			}));
+			showNotification('Upload failed', 'error');
+		}
+
+		// Clear upload status after 3 seconds
+		setTimeout(() => {
+			uploadingFiles = [];
+		}, 3000);
+	}
+
+	function handleAutoReferenceDocuments(uploads: any[]) {
+		// Dispatch an event to MessageInput to auto-reference the uploaded documents
+		const documentReferences = uploads.map(upload => ({
+			title: upload.title || upload.filename,
+			filename: upload.filename
+		}));
+		
+		// Use a custom event to communicate with MessageInput
+		const event = new CustomEvent('auto-reference-documents', {
+			detail: { documents: documentReferences }
+		});
+		
+		window.dispatchEvent(event);
+	}
 </script>
 
 <div
@@ -478,6 +675,7 @@
 			on:deleteChat={handleDeleteChat}
 			on:toggleMinimize={handleToggleMinimize}
 			on:toggleKnowledgeBase={toggleViewMode}
+			on:toggleTags={toggleTagsMode}
 		/>
 	</div>
 
@@ -485,13 +683,26 @@
 	<div
 		class="flex-1 {viewMode === 'knowledge'
 			? 'flex'
-			: 'flex flex-col'} bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-white/20 backdrop-blur-sm overflow-hidden"
+			: 'flex flex-col'} bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-white/20 backdrop-blur-sm overflow-hidden relative"
 		style="height: calc(100vh - 2rem);"
+		on:dragover={handleDragOver}
+		on:dragleave={handleDragLeave}
+		on:drop={handleDrop}
 	>
 		{#if viewMode === "knowledge"}
 			<!-- Knowledge Base View -->
 			<KnowledgeBase
 				documents={data.documents || []}
+				on:close={() => (viewMode = "chat")}
+				on:notification={(e) =>
+					showNotification(
+						e.detail.message,
+						e.detail.type,
+					)}
+			/>
+		{:else if viewMode === "tags"}
+			<!-- Tag Management View -->
+			<TagManager
 				on:close={() => (viewMode = "chat")}
 				on:notification={(e) =>
 					showNotification(
@@ -569,7 +780,14 @@
 							<p
 								class="text-base text-gray-600 mb-8 leading-relaxed"
 							>
-								Your intelligent assistant that learns with you, curates your knowledge and helps you make sense of the world.
+								Your intelligent
+								assistant that
+								learns with you,
+								curates your
+								knowledge and
+								helps you make
+								sense of the
+								world.
 							</p>
 
 							<p
@@ -588,6 +806,8 @@
 						{#each messages as message (message.id)}
 							<ChatMessage
 								{message}
+								documentReferences={messageDocumentReferences.get(message.id) || []}
+								on:messageDeleted={handleMessageDeleted}
 							/>
 						{/each}
 
@@ -605,6 +825,7 @@
 									role: "assistant",
 									timestamp: new Date(),
 								}}
+								documentReferences={[]}
 							/>
 						{/if}
 					</div>
@@ -617,6 +838,53 @@
 				on:send={handleSendMessage}
 			/>
 		{/if}
+
+		<!-- Drag Overlay -->
+		{#if isDragOver}
+			<div class="absolute inset-0 bg-blue-500/10 backdrop-blur-sm flex items-center justify-center z-50">
+				<div class="bg-white/95 backdrop-blur-sm rounded-2xl border-2 border-dashed border-blue-400 p-12 text-center shadow-2xl">
+					<div class="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-6">
+						<svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+						</svg>
+					</div>
+					<h3 class="text-xl font-semibold text-gray-900 mb-2">Drop files to upload</h3>
+					<p class="text-gray-600 mb-4">Supported formats: PDF, TXT, MD, DOCX</p>
+					<p class="text-sm text-gray-500">Files will be added to your knowledge base and automatically referenced</p>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Upload Progress -->
+		{#if uploadingFiles.length > 0}
+			<div class="absolute top-4 right-4 z-40 max-w-sm">
+				{#each uploadingFiles as file}
+					<div class="mb-2 bg-white rounded-lg shadow-lg border border-gray-200 p-3">
+						<div class="flex items-center gap-2 mb-2">
+							{#if file.status === 'uploading'}
+								<svg class="w-4 h-4 text-blue-500 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+								</svg>
+							{:else if file.status === 'success'}
+								<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+								</svg>
+							{:else}
+								<svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+								</svg>
+							{/if}
+							<span class="text-sm font-medium text-gray-900 truncate">{file.name}</span>
+						</div>
+						{#if file.status === 'uploading'}
+							<div class="w-full bg-gray-200 rounded-full h-1.5">
+								<div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" style="width: {file.progress}%"></div>
+							</div>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{/if}
 	</div>
 </div>
 
@@ -625,6 +893,7 @@
 	<KnowledgeEditModal
 		{messages}
 		chatTitle={currentChatTitle}
+		chatId={currentChatId || ''}
 		on:save={handleSaveEditedKnowledge}
 		on:cancel={handleCancelKnowledgeEdit}
 	/>

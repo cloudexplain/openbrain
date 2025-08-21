@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.api import chat
+from app.api import chat, tags, document_tags
 import logging
 
 # Configure logging
@@ -48,6 +48,20 @@ app.include_router(
     chat.router,
     prefix=settings.api_v1_str,
     tags=["chat"]
+)
+
+# Tag management routes
+app.include_router(
+    tags.router,
+    prefix=settings.api_v1_str,
+    tags=["tags"]
+)
+
+# Document-tag association routes
+app.include_router(
+    document_tags.router,
+    prefix=settings.api_v1_str,
+    tags=["document-tags"]
 )
 
 

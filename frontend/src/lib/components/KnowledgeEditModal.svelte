@@ -4,6 +4,7 @@
 	
 	export let messages: Message[] = [];
 	export let chatTitle: string = '';
+	export let chatId: string = '';
 	
 	const dispatch = createEventDispatcher();
 	
@@ -25,6 +26,7 @@
 	let documentContent = '';
 	let editMode: 'messages' | 'document' = 'messages';
 	let hoveredMessageIndex: number | null = null;
+	let isGeneratingSummary = false;
 	
 	function focusAndSelect(node: HTMLDivElement) {
 		node.focus();
@@ -113,6 +115,35 @@
 		dispatch('cancel');
 	}
 	
+	async function generateSummary() {
+		if (isGeneratingSummary || !messages.length) return;
+		
+		isGeneratingSummary = true;
+		
+		try {
+			// Use the passed chatId
+			
+			const response = await fetch(`/api/v1/chats/${chatId}/summarize`, {
+				method: 'POST'
+			});
+			
+			if (!response.ok) {
+				throw new Error(`Failed to generate summary: ${response.status}`);
+			}
+			
+			const result = await response.json();
+			
+			// Update the document title with the generated summary
+			documentTitle = result.summary;
+			
+		} catch (error) {
+			console.error('Error generating summary:', error);
+			// You could show a notification here
+		} finally {
+			isGeneratingSummary = false;
+		}
+	}
+	
 	// Initialize document content
 	updateDocumentContent();
 </script>
@@ -130,12 +161,31 @@
 			<label class="block text-sm font-medium text-gray-700 mb-2">
 				Document Title
 			</label>
-			<input
-				type="text"
-				bind:value={documentTitle}
-				class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-				placeholder="Enter a descriptive title for this knowledge document"
-			/>
+			<div class="flex gap-2">
+				<input
+					type="text"
+					bind:value={documentTitle}
+					class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+					placeholder="Enter a descriptive title for this knowledge document"
+				/>
+				<button
+					on:click={generateSummary}
+					disabled={isGeneratingSummary}
+					class="px-4 py-2 bg-purple-500 hover:bg-purple-600 disabled:bg-gray-300 text-white rounded-lg transition-colors font-medium text-sm whitespace-nowrap"
+					title="Generate an AI summary as the title"
+				>
+					{#if isGeneratingSummary}
+						<svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+						</svg>
+					{:else}
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+						</svg>
+					{/if}
+					Auto-Summarize
+				</button>
+			</div>
 		</div>
 		
 		<div class="px-6 py-3 border-b border-gray-200 flex gap-2">

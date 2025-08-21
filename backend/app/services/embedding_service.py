@@ -193,14 +193,16 @@ class EmbeddingService:
         query: str,
         limit: int = 5,
         similarity_threshold: float = 0.7,
-        source_types: List[str] = None
+        source_types: List[str] = None,
+        tag_ids: List[UUID] = None,
+        document_ids: List[UUID] = None
     ) -> List[DocumentChunk]:
         """
         Perform similarity search against all document chunks (unified search).
         """
         from sqlalchemy import select, func
         from sqlalchemy.orm import selectinload, joinedload
-        from app.models.chat import DocumentChunk, Document
+        from app.models.chat import DocumentChunk, Document, DocumentTag
         
         # Generate embedding for the query
         query_embedding = self.embed_text(query)
@@ -223,6 +225,18 @@ class EmbeddingService:
         # Add source type filtering if specified
         if source_types:
             stmt = stmt.where(Document.source_type.in_(source_types))
+        
+        # Add tag filtering if specified
+        if tag_ids:
+            stmt = stmt.join(
+                DocumentTag, Document.id == DocumentTag.document_id
+            ).where(
+                DocumentTag.tag_id.in_(tag_ids)
+            )
+        
+        # Add document filtering if specified
+        if document_ids:
+            stmt = stmt.where(Document.id.in_(document_ids))
         
         # Order by distance and limit
         stmt = stmt.order_by('distance').limit(limit)
@@ -247,6 +261,18 @@ class EmbeddingService:
             # Add source type filtering if specified
             if source_types:
                 fallback_stmt = fallback_stmt.where(Document.source_type.in_(source_types))
+            
+            # Add tag filtering if specified for fallback too
+            if tag_ids:
+                fallback_stmt = fallback_stmt.join(
+                    DocumentTag, Document.id == DocumentTag.document_id
+                ).where(
+                    DocumentTag.tag_id.in_(tag_ids)
+                )
+            
+            # Add document filtering if specified for fallback too
+            if document_ids:
+                fallback_stmt = fallback_stmt.where(Document.id.in_(document_ids))
             
             # Order by distance and get top 3
             fallback_stmt = fallback_stmt.order_by('distance').limit(3)

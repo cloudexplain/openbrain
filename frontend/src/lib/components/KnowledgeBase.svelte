@@ -8,9 +8,32 @@
 		DocumentChunk,
 	} from "$lib/api";
 	import PushNotification from "./PushNotification.svelte";
+	import TagSelector from "./TagSelector.svelte";
 	import { invalidateAll } from "$app/navigation";
 
 	const dispatch = createEventDispatcher();
+
+	// Auto-resize textarea action
+	function autoResize(node: HTMLTextAreaElement) {
+		function resize() {
+			node.style.height = 'auto';
+			// Set min height to 100px, but expand as needed
+			const scrollHeight = node.scrollHeight;
+			node.style.height = Math.max(100, scrollHeight) + 'px';
+		}
+		
+		// Initial resize
+		resize();
+		
+		// Resize on input
+		node.addEventListener('input', resize);
+		
+		return {
+			destroy() {
+				node.removeEventListener('input', resize);
+			}
+		};
+	}
 
 	export let documents: Document[] = [];
 	let selectedDocument: DocumentDetail | null = null;
@@ -21,10 +44,22 @@
 	let parsedContent = "";
 	let showUploadModal = false;
 	let uploadLoading = false;
+	let uploadedFiles: File[] = [];
+	let isDragging = false;
+	let uploadProgress: { [key: string]: { progress: number; status: string } } = {};
 	let isEditMode = false;
 	let editedChunks: DocumentChunk[] = [];
 	let editedTitle = "";
 	let hasChanges = false;
+	
+	// Cache for loaded documents to avoid re-fetching
+	let documentCache: Map<string, DocumentDetail> = new Map();
+	let showDeleteModal = false;
+	let documentToDelete: DocumentDetail | null = null;
+	
+	// PDF viewer state
+	let viewMode: "raw" | "pdf" = "raw";
+	let isPdfDocument = false;
 
 	// Push notifications
 	let pushNotifications: Array<{
@@ -56,11 +91,30 @@
 	}
 
 	async function loadDocuments() {
+		// Clear document cache when refreshing list
+		documentCache.clear();
 		// Refresh documents from server
 		await invalidateAll();
 	}
 
 	async function selectDocument(doc: Document) {
+		// Reset PDF state
+		isPdfDocument = false;
+		
+		// Check cache first
+		if (documentCache.has(doc.id)) {
+			selectedDocument = documentCache.get(doc.id) || null;
+			if (selectedDocument) {
+				parsedContent = marked.parse(
+					selectedDocument.content,
+				) as string;
+				// Check if it's a PDF document and set view mode accordingly
+				isPdfDocument = selectedDocument.file_type === "application/pdf";
+				viewMode = isPdfDocument ? "pdf" : "raw";
+			}
+			return;
+		}
+		
 		documentLoading = true;
 		try {
 			const response = await fetch(
@@ -74,14 +128,20 @@
 			}
 
 			selectedDocument = await response.json();
-			// Parse markdown content
+			
+			// Cache the document for future use
 			if (selectedDocument) {
+				documentCache.set(doc.id, selectedDocument);
 				parsedContent = marked.parse(
 					selectedDocument.content,
 				) as string;
+				// Check if it's a PDF document and set view mode accordingly
+				isPdfDocument = selectedDocument.file_type === "application/pdf";
+				viewMode = isPdfDocument ? "pdf" : "raw";
 			}
 		} catch (error) {
 			console.error("Failed to load document:", error);
+			showPushNotification("Failed to load document", "error");
 		} finally {
 			documentLoading = false;
 		}
@@ -151,7 +211,7 @@
 		try {
 			// Use direct API call through proxy (same pattern as chat loading)
 			const response = await fetch(
-				`/api/v1/documents/${selectedDocument.id}/chunks`
+				`/api/v1/documents/${selectedDocument.id}/chunks`,
 			);
 
 			if (!response.ok) {
@@ -162,10 +222,13 @@
 
 			// Direct JSON parsing - no SvelteKit serialization issues
 			selectedDocumentChunks = await response.json();
-			console.log("Document chunks loaded:", selectedDocumentChunks);
-			
+			console.log(
+				"Document chunks loaded:",
+				selectedDocumentChunks,
+			);
+
 			editedChunks = JSON.parse(
-				JSON.stringify(selectedDocumentChunks.chunks)
+				JSON.stringify(selectedDocumentChunks.chunks),
 			); // Deep clone
 			editedTitle = selectedDocumentChunks.title;
 			hasChanges = false;
@@ -187,6 +250,12 @@
 		editedChunks = [];
 		editedTitle = "";
 		hasChanges = false;
+	}
+	
+	function closeDocument() {
+		selectedDocument = null;
+		viewMode = "raw";
+		isPdfDocument = false;
 	}
 
 	function handleChunkEdit(chunkIndex: number, newContent: string) {
@@ -233,13 +302,14 @@
 				{
 					method: "PUT",
 					headers: {
-						"Content-Type": "application/json",
+						"Content-Type":
+							"application/json",
 					},
 					body: JSON.stringify({
 						title: editedTitle,
 						chunks: modifiedChunks,
 					}),
-				}
+				},
 			);
 
 			if (!response.ok) {
@@ -250,12 +320,17 @@
 
 			const result = await response.json();
 			console.log("Update result:", result);
-			
+
 			removePushNotification(savingNotificationId);
 			showPushNotification(
 				"Document updated successfully!",
 				"success",
 			);
+
+			// Clear cache for this document since it was updated
+			if (selectedDocument) {
+				documentCache.delete(selectedDocument.id);
+			}
 
 			// Reload the document to show updated content
 			await selectDocument(selectedDocument);
@@ -276,77 +351,136 @@
 
 		if (!files || files.length === 0) return;
 
-		const file = files[0];
+		// Convert FileList to Array and process
+		const fileArray = Array.from(files);
+		await processFiles(fileArray);
+		
+		// Reset file input
+		if (target) {
+			target.value = "";
+		}
+	}
 
-		// Validate file type
+	async function processFiles(files: File[]) {
+		if (files.length === 0) return;
+
+		// Validate files
 		const allowedTypes = [
 			"application/pdf",
 			"text/plain",
 			"text/markdown",
 			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		];
-		if (!allowedTypes.includes(file.type)) {
-			showPushNotification(
-				"Unsupported file type. Please upload PDF, TXT, MD, or DOCX files.",
-				"error",
-			);
-			return;
-		}
-
-		// Validate file size (50MB max)
 		const maxSize = 50 * 1024 * 1024; // 50MB
-		if (file.size > maxSize) {
-			showPushNotification(
-				"File too large. Maximum size is 50MB.",
-				"error",
-			);
-			return;
+		
+		const validFiles: File[] = [];
+		for (const file of files) {
+			if (!allowedTypes.includes(file.type)) {
+				showPushNotification(
+					`"${file.name}" - Unsupported file type. Supported: PDF, TXT, MD, DOCX`,
+					"error",
+				);
+				continue;
+			}
+			if (file.size > maxSize) {
+				showPushNotification(
+					`"${file.name}" - File too large. Maximum size is 50MB.`,
+					"error",
+				);
+				continue;
+			}
+			validFiles.push(file);
 		}
+		
+		if (validFiles.length === 0) return;
 
 		uploadLoading = true;
+		uploadedFiles = validFiles;
 
 		// Show processing notification
 		const processingNotificationId = showPushNotification(
-			`Uploading "${file.name}"...`,
+			`Uploading ${validFiles.length} file${validFiles.length > 1 ? 's' : ''}...`,
 			"processing",
 			0,
 		); // Duration 0 = stays until removed
 
 		try {
-			// Use fetch directly to call our proxy endpoint
-			const formData = new FormData();
-			formData.append("file", file);
+			// Process files in parallel if multiple or use single upload for one file
+			if (validFiles.length === 1) {
+				// Single file upload
+				const formData = new FormData();
+				formData.append("file", validFiles[0]);
 
-			const fetchResponse = await fetch("?/uploadDocument", {
-				method: "POST",
-				body: formData,
-			});
+				const fetchResponse = await fetch("?/uploadDocument", {
+					method: "POST",
+					body: formData,
+				});
 
-			if (!fetchResponse.ok) {
-				throw new Error(
-					`Upload failed: ${fetchResponse.status} ${fetchResponse.statusText}`,
+				if (!fetchResponse.ok) {
+					throw new Error(
+						`Upload failed: ${fetchResponse.status} ${fetchResponse.statusText}`,
+					);
+				}
+
+				const response = await fetchResponse.json();
+				showPushNotification(
+					`"${validFiles[0].name}" uploaded! Processing in background...`,
+					"success",
+					3000,
 				);
-			}
+			} else {
+				// Multiple file upload - upload sequentially to show progress
+				let successCount = 0;
+				let failCount = 0;
+				
+				for (let i = 0; i < validFiles.length; i++) {
+					const file = validFiles[i];
+					uploadProgress[file.name] = { progress: (i / validFiles.length) * 100, status: 'uploading' };
+					
+					try {
+						const formData = new FormData();
+						formData.append("file", file);
 
-			const response = await fetchResponse.json();
+						const fetchResponse = await fetch("?/uploadDocument", {
+							method: "POST",
+							body: formData,
+						});
+
+						if (!fetchResponse.ok) {
+							throw new Error(`Upload failed for ${file.name}`);
+						}
+						
+						uploadProgress[file.name] = { progress: 100, status: 'completed' };
+						successCount++;
+					} catch (error) {
+						uploadProgress[file.name] = { progress: 100, status: 'failed' };
+						failCount++;
+						console.error(`Failed to upload ${file.name}:`, error);
+					}
+				}
+				
+				if (successCount > 0) {
+					showPushNotification(
+						`Successfully uploaded ${successCount} file${successCount > 1 ? 's' : ''}${failCount > 0 ? `, ${failCount} failed` : ''}`,
+						"success",
+						3000,
+					);
+				} else {
+					showPushNotification(
+						`Failed to upload files`,
+						"error",
+						3000,
+					);
+				}
+			}
 
 			// Remove processing notification
 			removePushNotification(processingNotificationId);
 
-			// Show success notification
-			showPushNotification(
-				`"${file.name}" uploaded! Processing in background...`,
-				"info",
-				2000,
-			);
-
 			// Close modal
 			showUploadModal = false;
-
-			// Reset file input
-			if (target) {
-				target.value = "";
-			}
+			uploadedFiles = [];
+			uploadProgress = {};
 
 			// Wait a bit then refresh document list to see if processing is complete
 			setTimeout(async () => {
@@ -366,15 +500,95 @@
 			// Stop checking after 30 seconds
 			setTimeout(() => clearInterval(checkInterval), 30000);
 		} catch (error) {
-			console.error("Failed to upload document:", error);
+			console.error("Failed to upload documents:", error);
 			removePushNotification(processingNotificationId);
 			showPushNotification(
-				"Failed to upload document",
+				"Failed to upload documents",
 				"error",
 				5000,
 			);
 		} finally {
 			uploadLoading = false;
+			uploadedFiles = [];
+			uploadProgress = {};
+		}
+	}
+	
+	function handleDragOver(event: DragEvent) {
+		event.preventDefault();
+		isDragging = true;
+	}
+	
+	function handleDragLeave(event: DragEvent) {
+		event.preventDefault();
+		isDragging = false;
+	}
+	
+	async function handleDrop(event: DragEvent) {
+		event.preventDefault();
+		isDragging = false;
+		
+		const files = event.dataTransfer?.files;
+		if (!files || files.length === 0) return;
+		
+		// Convert FileList to Array and process
+		const fileArray = Array.from(files);
+		await processFiles(fileArray);
+	}
+	
+	function confirmDeleteDocument(doc: DocumentDetail) {
+		documentToDelete = doc;
+		showDeleteModal = true;
+	}
+	
+	async function deleteDocument() {
+		if (!documentToDelete) return;
+		
+		const deletingNotificationId = showPushNotification(
+			`Deleting "${documentToDelete.title}"...`,
+			"processing",
+			0,
+		);
+		
+		try {
+			const response = await fetch(`/api/v1/documents/${documentToDelete.id}`, {
+				method: "DELETE",
+			});
+			
+			if (!response.ok) {
+				throw new Error(`Delete failed: ${response.status} ${response.statusText}`);
+			}
+			
+			removePushNotification(deletingNotificationId);
+			showPushNotification(
+				`"${documentToDelete.title}" deleted successfully`,
+				"success",
+				3000,
+			);
+			
+			// Clear from cache if it exists
+			documentCache.delete(documentToDelete.id);
+			
+			// Clear selected document if it was the one being deleted
+			if (selectedDocument?.id === documentToDelete.id) {
+				closeDocument();
+			}
+			
+			// Close delete modal
+			showDeleteModal = false;
+			documentToDelete = null;
+			
+			// Refresh document list
+			await loadDocuments();
+			
+		} catch (error) {
+			console.error("Failed to delete document:", error);
+			removePushNotification(deletingNotificationId);
+			showPushNotification(
+				"Failed to delete document",
+				"error",
+				5000,
+			);
 		}
 	}
 </script>
@@ -615,10 +829,17 @@
 							{#if !isEditMode}
 								<button
 									on:click={enterEditMode}
-									class="px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition-colors"
+									class="px-4 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors font-medium shadow-sm"
 									title="Edit document"
 								>
 									Edit
+								</button>
+								<button
+									on:click={() => confirmDeleteDocument(selectedDocument)}
+									class="px-4 py-2 text-sm bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors font-medium shadow-sm"
+									title="Delete document"
+								>
+									Delete
 								</button>
 							{/if}
 							<button
@@ -628,8 +849,7 @@
 									) {
 										exitEditMode();
 									} else {
-										selectedDocument =
-											null;
+										closeDocument();
 									}
 								}}
 								class="p-1 hover:bg-gray-100 rounded-lg transition-colors"
@@ -653,11 +873,50 @@
 							</button>
 						</div>
 					</div>
+
+					<!-- PDF View Toggle (only for PDF documents) -->
+					{#if isPdfDocument && !isEditMode}
+						<div class="mt-3 flex items-center gap-3">
+							<span class="text-sm text-gray-600">View:</span>
+							<div class="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+								<button
+									on:click={() => viewMode = "raw"}
+									class="px-3 py-1 text-sm rounded-md transition-colors {viewMode === 'raw' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
+								>
+									Raw
+								</button>
+								<button
+									on:click={() => viewMode = "pdf"}
+									class="px-3 py-1 text-sm rounded-md transition-colors {viewMode === 'pdf' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
+								>
+									PDF
+								</button>
+							</div>
+						</div>
+					{/if}
+
+					<!-- Tags Section -->
+					<div class="mt-3">
+						<TagSelector
+							documentId={selectedDocument.id}
+							mode="edit"
+							on:error={(e) =>
+								showPushNotification(
+									e.detail
+										.message,
+									"error",
+								)}
+							on:createTag={(e) => {
+								// Dispatch event to parent to switch to tag management
+								dispatch('switchToTags', { tagName: e.detail.name });
+							}}
+						/>
+					</div>
 				</div>
 
 				<!-- Document Content -->
 				<div
-					class="flex-1 overflow-y-auto px-6 py-4 bg-white custom-scrollbar min-h-0"
+					class="flex-1 overflow-y-auto bg-white custom-scrollbar min-h-0 relative {viewMode === 'pdf' ? 'p-0' : 'px-6 py-4'}"
 				>
 					{#if isEditMode && editedChunks.length > 0}
 						<div class="space-y-4">
@@ -695,8 +954,8 @@
 													.currentTarget
 													.value,
 											)}
-										class="w-full p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-										rows="6"
+										use:autoResize
+										class="w-full p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm overflow-hidden"
 										placeholder="Enter chunk content..."
 									/>
 									{#if chunk.summary}
@@ -711,20 +970,30 @@
 							{/each}
 						</div>
 					{:else if !isEditMode}
-						<div
-							class="markdown-content prose prose-sm max-w-none
-							prose-headings:text-gray-900
-							prose-p:text-gray-700
-							prose-strong:text-gray-900
-							prose-code:text-pink-600 prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded
-							prose-pre:bg-gray-900 prose-pre:text-gray-100
-							prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:bg-blue-50 prose-blockquote:text-gray-700
-							prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
-							prose-li:text-gray-700
-							prose-hr:border-gray-300"
-						>
-							{@html parsedContent}
-						</div>
+						{#if viewMode === "pdf" && isPdfDocument && selectedDocument}
+							<!-- PDF Viewer -->
+							<iframe
+								src={`/api/v1/documents/${selectedDocument.id}/pdf`}
+								class="absolute inset-0 w-full h-full border-0"
+								title="PDF Viewer"
+							/>
+						{:else}
+							<!-- Raw/Markdown Content -->
+							<div
+								class="markdown-content prose prose-sm max-w-none
+								prose-headings:text-gray-900
+								prose-p:text-gray-700
+								prose-strong:text-gray-900
+								prose-code:text-pink-600 prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded
+								prose-pre:bg-gray-900 prose-pre:text-gray-100
+								prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:bg-blue-50 prose-blockquote:text-gray-700
+								prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
+								prose-li:text-gray-700
+								prose-hr:border-gray-300"
+							>
+								{@html parsedContent}
+							</div>
+						{/if}
 					{:else}
 						<div
 							class="flex items-center justify-center h-full"
@@ -845,12 +1114,16 @@
 				</div>
 
 				<div
-					class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center"
+					class="border-2 border-dashed rounded-lg p-8 text-center transition-colors {isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}"
+					on:dragover={handleDragOver}
+					on:dragleave={handleDragLeave}
+					on:drop={handleDrop}
 				>
 					<input
 						type="file"
 						id="fileUpload"
 						accept=".pdf,.txt,.md,.docx"
+						multiple
 						on:change={handleFileUpload}
 						class="hidden"
 						disabled={uploadLoading}
@@ -860,11 +1133,35 @@
 						<div
 							class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"
 						></div>
-						<p
-							class="text-sm text-gray-600"
-						>
-							Uploading document...
+						<p class="text-sm text-gray-600 mb-3">
+							Uploading {uploadedFiles.length} file{uploadedFiles.length > 1 ? 's' : ''}...
 						</p>
+						{#if Object.keys(uploadProgress).length > 0}
+							<div class="space-y-2 max-h-48 overflow-y-auto">
+								{#each Object.entries(uploadProgress) as [filename, progress]}
+									<div class="text-xs text-left">
+										<div class="flex items-center justify-between mb-1">
+											<span class="truncate flex-1">{filename}</span>
+											<span class="ml-2">
+												{#if progress.status === 'completed'}
+													✓
+												{:else if progress.status === 'failed'}
+													✗
+												{:else}
+													{Math.round(progress.progress)}%
+												{/if}
+											</span>
+										</div>
+										<div class="w-full bg-gray-200 rounded-full h-1.5">
+											<div 
+												class="h-1.5 rounded-full transition-all {progress.status === 'failed' ? 'bg-red-500' : progress.status === 'completed' ? 'bg-green-500' : 'bg-blue-500'}"
+												style="width: {progress.progress}%"
+											></div>
+										</div>
+									</div>
+								{/each}
+							</div>
+						{/if}
 					{:else}
 						<svg
 							class="w-12 h-12 text-gray-400 mx-auto mb-4"
@@ -879,23 +1176,20 @@
 								d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
 							/>
 						</svg>
-						<p
-							class="text-sm text-gray-600 mb-2"
-						>
-							Choose a file to upload
+						<p class="text-sm text-gray-600 mb-2">
+							{isDragging ? 'Drop files here' : 'Drag & drop files here or click to browse'}
 						</p>
-						<p
-							class="text-xs text-gray-500 mb-4"
-						>
-							Supports PDF, TXT, MD,
-							and DOCX files (max
-							50MB)
+						<p class="text-xs text-gray-500 mb-4">
+							Supports PDF, TXT, MD, and DOCX files (max 50MB each)
 						</p>
 						<label
 							for="fileUpload"
 							class="inline-flex items-center px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg cursor-pointer transition-colors"
 						>
-							Select File
+							<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+							</svg>
+							Select Files
 						</label>
 					{/if}
 				</div>
@@ -908,6 +1202,91 @@
 						disabled={uploadLoading}
 					>
 						Cancel
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Delete Confirmation Modal -->
+{#if showDeleteModal && documentToDelete}
+	<div
+		class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+	>
+		<div
+			class="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4"
+		>
+			<div class="p-6">
+				<div
+					class="flex items-center justify-between mb-4"
+				>
+					<h3
+						class="text-lg font-semibold text-gray-800"
+					>
+						Delete Document
+					</h3>
+					<button
+						on:click={() => {
+							showDeleteModal = false;
+							documentToDelete = null;
+						}}
+						class="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+					>
+						<svg
+							class="w-5 h-5 text-gray-500"
+							fill="none"
+							stroke="currentColor"
+							viewBox="0 0 24 24"
+						>
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M6 18L18 6M6 6l12 12"
+							></path>
+						</svg>
+					</button>
+				</div>
+
+				<div class="mb-6">
+					<div class="flex items-center gap-3 mb-3">
+						<div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+							<svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+							</svg>
+						</div>
+						<div>
+							<p class="text-sm text-gray-600">
+								Are you sure you want to delete this document?
+							</p>
+							<p class="font-medium text-gray-900 mt-1">
+								"{documentToDelete.title}"
+							</p>
+						</div>
+					</div>
+					<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+						<p class="text-sm text-yellow-800">
+							<strong>Warning:</strong> This action cannot be undone. The document and all its content will be permanently removed from your knowledge base.
+						</p>
+					</div>
+				</div>
+
+				<div class="flex justify-end gap-3">
+					<button
+						on:click={() => {
+							showDeleteModal = false;
+							documentToDelete = null;
+						}}
+						class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+					>
+						Cancel
+					</button>
+					<button
+						on:click={deleteDocument}
+						class="px-4 py-2 text-sm bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors font-medium"
+					>
+						Delete Document
 					</button>
 				</div>
 			</div>
@@ -999,4 +1378,3 @@
 		background-color: #eff6ff;
 	}
 </style>
-

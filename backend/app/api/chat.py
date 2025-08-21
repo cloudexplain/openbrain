@@ -1,7 +1,7 @@
 from typing import List
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Form
+from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 import json
 import asyncio
@@ -85,7 +85,7 @@ async def chat_with_ai(
         
         async def generate_stream():
             try:
-                async for chunk, message_id in ChatService.generate_response(
+                async for result in ChatService.generate_response(
                     db, 
                     chat.id, 
                     request.message,
@@ -93,6 +93,13 @@ async def chat_with_ai(
                     rag_limit=request.rag_limit,
                     rag_threshold=request.rag_threshold
                 ):
+                    # Handle both 2-tuple and 3-tuple returns
+                    if len(result) == 2:
+                        chunk, message_id = result
+                        document_references = None
+                    else:
+                        chunk, message_id, document_references = result
+                    
                     if chunk:
                         # Send content chunk
                         response = StreamResponse(
@@ -103,13 +110,18 @@ async def chat_with_ai(
                         yield f"data: {response.model_dump_json()}\n\n"
                     
                     if message_id:
-                        # Send completion message
-                        response = StreamResponse(
-                            type="done",
-                            message_id=message_id,
-                            chat_id=chat.id
-                        )
-                        yield f"data: {response.model_dump_json()}\n\n"
+                        # Send completion message with document references
+                        response_data = {
+                            "type": "done",
+                            "message_id": str(message_id),
+                            "chat_id": str(chat.id)
+                        }
+                        
+                        # Add document references if available
+                        if document_references:
+                            response_data["document_references"] = document_references
+                        
+                        yield f"data: {json.dumps(response_data)}\n\n"
                         break
                         
             except Exception as e:
@@ -384,16 +396,23 @@ async def search_knowledge(
 async def get_documents(
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all documents in the knowledge base"""
-    from sqlalchemy import select
+    """Get all documents in the knowledge base - metadata only for performance"""
+    from sqlalchemy import select, func
     from sqlalchemy.orm import selectinload
-    from app.models.chat import Document
+    from app.models.chat import Document, DocumentChunk
     
     try:
-        result = await db.execute(
-            select(Document).options(selectinload(Document.chunks))
-        )
-        documents = result.scalars().all()
+        # Get documents with chunk count using a subquery for better performance
+        # This avoids loading all chunks into memory
+        stmt = select(
+            Document,
+            func.count(DocumentChunk.id).label('chunk_count')
+        ).outerjoin(
+            DocumentChunk, Document.id == DocumentChunk.document_id
+        ).group_by(Document.id)
+        
+        result = await db.execute(stmt)
+        documents_with_counts = result.all()
         
         return [
             {
@@ -405,10 +424,10 @@ async def get_documents(
                 "file_type": doc.file_type,
                 "created_at": doc.created_at.isoformat() if doc.created_at else None,
                 "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
-                "chunk_count": len(doc.chunks),
+                "chunk_count": chunk_count,
                 "metadata": json.loads(doc.document_metadata) if doc.document_metadata else {}
             }
-            for doc in documents
+            for doc, chunk_count in documents_with_counts
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch documents: {str(e)}")
@@ -657,3 +676,334 @@ async def upload_document(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to upload document: {str(e)}")
+
+
+@router.post("/documents/upload-multiple")
+async def upload_multiple_documents(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """Upload multiple document files and process them asynchronously in the background"""
+    
+    # Validate file types and sizes
+    allowed_types = {
+        'application/pdf': '.pdf',
+        'text/plain': '.txt',
+        'text/markdown': '.md',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx'
+    }
+    
+    max_size = 50 * 1024 * 1024  # 50MB per file
+    upload_results = []
+    
+    for file in files:
+        # Validate file type
+        if file.content_type not in allowed_types:
+            upload_results.append({
+                "filename": file.filename,
+                "status": "failed",
+                "error": f"Unsupported file type: {file.content_type}"
+            })
+            continue
+        
+        # Validate file size
+        if file.size and file.size > max_size:
+            upload_results.append({
+                "filename": file.filename,
+                "status": "failed",
+                "error": "File too large. Maximum size is 50MB"
+            })
+            continue
+        
+        try:
+            # Create uploads directory if it doesn't exist
+            upload_dir = Path("/app/uploads")
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate unique filename and upload ID
+            file_extension = allowed_types[file.content_type]
+            upload_id = str(uuid4())
+            unique_filename = f"{upload_id}{file_extension}"
+            file_path = upload_dir / unique_filename
+            
+            # Save file to disk
+            async with aiofiles.open(file_path, 'wb') as f:
+                content = await file.read()
+                await f.write(content)
+            
+            # Add background task to process the document
+            background_tasks.add_task(
+                process_document_background,
+                str(file_path),
+                file.filename,
+                file.content_type,
+                upload_id
+            )
+            
+            upload_results.append({
+                "filename": file.filename,
+                "upload_id": upload_id,
+                "status": "processing"
+            })
+            
+        except Exception as e:
+            upload_results.append({
+                "filename": file.filename,
+                "status": "failed",
+                "error": str(e)
+            })
+    
+    # Count successful uploads
+    successful_uploads = [r for r in upload_results if r["status"] == "processing"]
+    
+    return {
+        "message": f"Uploaded {len(successful_uploads)} of {len(files)} files",
+        "uploads": upload_results
+    }
+
+
+@router.delete("/documents/{document_id}")
+async def delete_document(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a document and all its chunks from the database"""
+    from sqlalchemy import select
+    from app.models.chat import Document
+    
+    try:
+        # Find the document
+        result = await db.execute(
+            select(Document).where(Document.id == document_id)
+        )
+        document = result.scalar_one_or_none()
+        
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        # Delete the document (this will cascade delete chunks due to foreign key relationship)
+        await db.delete(document)
+        await db.commit()
+        
+        return {
+            "message": f"Document '{document.title}' deleted successfully",
+            "document_id": str(document_id)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
+
+
+@router.get("/documents/search")
+async def search_documents_by_name(
+    query: str = "",
+    limit: int = 10,
+    db: AsyncSession = Depends(get_db)
+):
+    """Search documents by title for autocomplete functionality"""
+    from sqlalchemy import select, func, or_
+    from app.models.chat import Document, DocumentChunk
+    
+    try:
+        # Build the base query with chunk count
+        stmt = select(
+            Document,
+            func.count(DocumentChunk.id).label('chunk_count')
+        ).outerjoin(
+            DocumentChunk, Document.id == DocumentChunk.document_id
+        ).group_by(Document.id)
+        
+        # Add search filters if query is provided
+        if query.strip():
+            search_term = f"%{query.lower()}%"
+            stmt = stmt.where(
+                or_(
+                    func.lower(Document.title).like(search_term),
+                    func.lower(Document.filename).like(search_term)
+                )
+            )
+        
+        # Order by relevance (exact matches first, then partial matches)
+        # Then by creation date (newest first)
+        if query.strip():
+            stmt = stmt.order_by(
+                # Exact title matches first
+                func.lower(Document.title) == query.lower(),
+                # Titles starting with query second  
+                func.lower(Document.title).like(f"{query.lower()}%"),
+                # Then by creation date
+                Document.created_at.desc()
+            )
+        else:
+            stmt = stmt.order_by(Document.created_at.desc())
+        
+        # Apply limit
+        stmt = stmt.limit(limit)
+        
+        result = await db.execute(stmt)
+        documents_with_counts = result.all()
+        
+        return {
+            "query": query,
+            "documents": [
+                {
+                    "id": str(doc.id),
+                    "title": doc.title,
+                    "source_type": doc.source_type,
+                    "source_id": doc.source_id,
+                    "filename": doc.filename,
+                    "file_type": doc.file_type,
+                    "created_at": doc.created_at.isoformat() if doc.created_at else None,
+                    "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
+                    "chunk_count": chunk_count,
+                    "metadata": json.loads(doc.document_metadata) if doc.document_metadata else {}
+                }
+                for doc, chunk_count in documents_with_counts
+            ],
+            "total_results": len(documents_with_counts)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to search documents: {str(e)}")
+
+
+@router.get("/documents/{document_id}/pdf")
+async def serve_pdf_file(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """Serve the original PDF file for a document if it exists"""
+    from sqlalchemy import select
+    from app.models.chat import Document
+    
+    try:
+        # Find the document
+        result = await db.execute(
+            select(Document).where(Document.id == document_id)
+        )
+        document = result.scalar_one_or_none()
+        
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        # Check if it's a PDF
+        if document.file_type != "application/pdf":
+            raise HTTPException(status_code=400, detail="Document is not a PDF")
+        
+        # Get file path from metadata
+        if document.document_metadata:
+            metadata = json.loads(document.document_metadata)
+            file_path = metadata.get("file_path")
+            
+            if file_path and os.path.exists(file_path):
+                return FileResponse(
+                    file_path,
+                    media_type="application/pdf",
+                    filename=document.filename or f"document_{document_id}.pdf",
+                    headers={
+                        "Content-Disposition": f'inline; filename="{document.filename or f"document_{document_id}.pdf"}"'
+                    }
+                )
+        
+        raise HTTPException(status_code=404, detail="PDF file not found on disk")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to serve PDF: {str(e)}")
+
+
+@router.delete("/messages/{message_id}")
+async def delete_message(
+    message_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a specific message from a chat"""
+    from sqlalchemy import select
+    from app.models.chat import Message
+    
+    try:
+        # Find the message
+        result = await db.execute(
+            select(Message).where(Message.id == message_id)
+        )
+        message = result.scalar_one_or_none()
+        
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+        
+        # Store chat_id for response
+        chat_id = message.chat_id
+        
+        # Delete the message
+        await db.delete(message)
+        await db.commit()
+        
+        return {
+            "message": "Message deleted successfully",
+            "message_id": str(message_id),
+            "chat_id": str(chat_id)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete message: {str(e)}")
+
+
+@router.post("/chats/{chat_id}/summarize")
+async def summarize_chat(
+    chat_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """Generate an auto-summary of a chat conversation"""
+    try:
+        # Get the chat with all messages
+        chat = await ChatService.get_chat(db, chat_id)
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        
+        if not chat.messages:
+            raise HTTPException(status_code=400, detail="Chat has no messages to summarize")
+        
+        # Build conversation text
+        conversation_text = ""
+        for msg in sorted(chat.messages, key=lambda x: x.created_at):
+            role = "User" if msg.role == "user" else "Assistant"
+            conversation_text += f"{role}: {msg.content}\n\n"
+        
+        # Create summarization prompt
+        summary_prompt = f"""Please provide a concise, informative summary of the following conversation. The summary should:
+1. Capture the main topics discussed
+2. Highlight key insights, solutions, or conclusions
+3. Be suitable as a title and description for a knowledge base document
+4. Be 2-3 sentences long
+
+Conversation:
+{conversation_text}
+
+Please respond with just the summary, no additional formatting."""
+        
+        # Generate summary using the AI service
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant that creates concise, informative summaries of conversations."},
+            {"role": "user", "content": summary_prompt}
+        ]
+        
+        summary = ""
+        async for chunk in azure_openai_service.generate_chat_completion(messages):
+            summary += chunk
+        
+        return {
+            "summary": summary.strip(),
+            "chat_id": str(chat_id)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to summarize chat: {str(e)}")

@@ -79,6 +79,47 @@ export const actions: Actions = {
 		}
 	},
 	
+	uploadMultipleDocuments: async ({ request }) => {
+		console.log('[+page.server.ts] Upload multiple documents action');
+		
+		try {
+			const formData = await request.formData();
+			const files = formData.getAll('files') as File[];
+			
+			if (!files || files.length === 0) {
+				return fail(400, { error: 'No files provided' });
+			}
+			
+			console.log('[+page.server.ts] Uploading files:', files.map(f => f.name));
+			
+			// Forward to backend
+			const backendFormData = new FormData();
+			files.forEach(file => {
+				backendFormData.append('files', file);
+			});
+			
+			console.log("Calling upload multiple documents to", 'http://backend:8000/api/v1/documents/upload-multiple');
+			const response = await fetch('http://backend:8000/api/v1/documents/upload-multiple', {
+				method: 'POST',
+				body: backendFormData
+			});
+			
+			if (!response.ok) {
+				const error = await response.text();
+				console.error('[+page.server.ts] Multi-upload failed:', error);
+				return fail(response.status, { error: `Upload failed: ${response.statusText}` });
+			}
+			
+			const result = await response.json();
+			console.log('[+page.server.ts] Multi-upload success:', result);
+			
+			return { success: true, ...result };
+		} catch (error) {
+			console.error('[+page.server.ts] Multi-upload error:', error);
+			return fail(500, { error: 'Internal server error' });
+		}
+	},
+	
 	getDocument: async ({ request }) => {
 		const formData = await request.formData();
 		const documentId = formData.get('documentId') as string;

@@ -28,12 +28,23 @@ export interface ChatListItem {
 	message_count: number;
 }
 
+export interface DocumentReference {
+	id: string;
+	title: string;
+	source_type: string;
+	chunk_count: number;
+	max_similarity: number;
+	avg_similarity: number;
+	tags: any[];
+}
+
 export interface StreamResponse {
 	type: 'content' | 'done' | 'error';
 	content?: string;
 	message_id?: string;
 	chat_id?: string;
 	error?: string;
+	document_references?: DocumentReference[];
 }
 
 export interface Document {
