@@ -9,6 +9,7 @@
 	} from "$lib/api";
 	import PushNotification from "./PushNotification.svelte";
 	import TagSelector from "./TagSelector.svelte";
+	import TipTapEditor from "./TipTapEditor.svelte";
 	import { invalidateAll } from "$app/navigation";
 
 	const dispatch = createEventDispatcher();
@@ -53,8 +54,6 @@
 	let editedContent = "";  // Single unified content for editing
 	let hasChanges = false;
 	let displayMode: "formatted" | "raw" = "formatted";  // Display mode toggle
-	let formattedEditorRef: HTMLDivElement;  // Reference to contenteditable div
-	let isUpdatingFormatted = false;  // Flag to prevent recursive updates
 	
 	// Cache for loaded documents to avoid re-fetching
 	let documentCache: Map<string, DocumentDetail> = new Map();
@@ -267,9 +266,9 @@
 		isPdfDocument = false;
 	}
 
-	function handleContentEdit(newContent: string) {
-		if (editedContent !== newContent) {
-			editedContent = newContent;
+	function handleContentEdit(html: string, markdown: string) {
+		if (editedContent !== markdown) {
+			editedContent = markdown;
 			hasChanges = true;
 		}
 	}
@@ -966,13 +965,13 @@
 									on:click={() => displayMode = "formatted"}
 									class="px-3 py-1 text-sm rounded-md transition-colors {displayMode === 'formatted' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
 								>
-									Edit Only
+									Formatted
 								</button>
 								<button
 									on:click={() => displayMode = "raw"}
 									class="px-3 py-1 text-sm rounded-md transition-colors {displayMode === 'raw' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
 								>
-									Split View
+									Raw
 								</button>
 							</div>
 							<span class="text-xs text-gray-500 ml-auto">
@@ -981,54 +980,29 @@
 						</div>
 						
 						{#if displayMode === "formatted"}
-							<!-- Single edit view -->
-							<div class="space-y-2">
-								<div class="text-xs text-gray-500 mb-2">
-									Edit your markdown below. Use **text** for bold, *text* for italic, # for headings, etc.
-								</div>
-								<textarea
-									value={editedContent}
-									on:input={(e) => handleContentEdit(e.currentTarget.value)}
-									use:autoResize
-									class="w-full p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-									placeholder="Enter document content..."
-									style="min-height: 500px;"
+							<!-- TipTap Editor (without instructional text) -->
+							<div class="space-y-3">
+								<TipTapEditor
+									content={editedContent}
+									onChange={handleContentEdit}
+									placeholder="Start writing your document..."
+									height="500px"
+									editable={true}
 								/>
 							</div>
 						{:else}
-							<!-- Split view: edit on left, preview on right -->
-							<div class="flex gap-4 h-[600px]">
-								<!-- Edit pane -->
-								<div class="flex-1 flex flex-col">
-									<div class="text-xs text-gray-500 mb-2 font-semibold">MARKDOWN</div>
-									<textarea
-										value={editedContent}
-										on:input={(e) => handleContentEdit(e.currentTarget.value)}
-										class="flex-1 p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm overflow-y-auto"
-										placeholder="Enter document content..."
-									/>
+							<!-- Raw markdown view -->
+							<div class="space-y-3">
+								<div class="text-xs text-gray-500">
+									Edit raw markdown syntax. Use **bold**, *italic*, # headings, etc.
 								</div>
-								
-								<!-- Preview pane -->
-								<div class="flex-1 flex flex-col">
-									<div class="text-xs text-gray-500 mb-2 font-semibold">PREVIEW</div>
-									<div class="flex-1 overflow-y-auto border border-gray-300 rounded-lg p-4 bg-gray-50">
-										<div
-											class="markdown-content prose prose-sm max-w-none
-											prose-headings:text-gray-900
-											prose-p:text-gray-700
-											prose-strong:text-gray-900
-											prose-code:text-pink-600 prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded
-											prose-pre:bg-gray-900 prose-pre:text-gray-100
-											prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:bg-blue-50 prose-blockquote:text-gray-700
-											prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
-											prose-li:text-gray-700
-											prose-hr:border-gray-300"
-										>
-											{@html marked.parse(editedContent)}
-										</div>
-									</div>
-								</div>
+								<textarea
+									value={editedContent}
+									on:input={(e) => handleContentEdit('', e.currentTarget.value)}
+									class="w-full p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+									placeholder="Enter markdown content..."
+									style="height: 500px;"
+								/>
 							</div>
 						{/if}
 					{:else if !isEditMode}
