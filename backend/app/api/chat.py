@@ -233,6 +233,18 @@ async def save_edited_chat_to_knowledge(
     mode = request.get("mode", "document")
     
     try:
+        # Update the chat title in the database
+        from app.models.chat import Chat
+        from sqlalchemy import select
+        
+        chat_result = await db.execute(
+            select(Chat).where(Chat.id == chat_id, Chat.user_id == current_user.id)
+        )
+        chat = chat_result.scalar_one_or_none()
+        
+        if chat:
+            chat.title = title
+            await db.flush()  # Ensure the chat title is updated
         if mode == "document":
             # Single document mode - just save the content as is
             content = request.get("content", "")
@@ -354,6 +366,148 @@ async def save_edited_chat_to_knowledge(
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to save edited chat: {str(e)}")
+
+
+@router.post("/chats/{chat_id}/auto-update-title")
+async def auto_update_chat_title(
+    chat_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Automatically generate and update chat title based on recent messages"""
+    from app.models.chat import Chat, Message
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    import json
+    
+    try:
+        # Get the chat with its messages
+        result = await db.execute(
+            select(Chat)
+            .where(Chat.id == chat_id, Chat.user_id == current_user.id)
+            .options(selectinload(Chat.messages))
+        )
+        chat = result.scalar_one_or_none()
+        
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        
+        if not chat.messages or len(chat.messages) < 2:
+            return {"message": "Not enough messages to generate title", "title": chat.title}
+        
+        # Get the last 3 message pairs (up to 6 messages)
+        sorted_messages = sorted(chat.messages, key=lambda x: x.created_at)
+        recent_messages = sorted_messages[-6:] if len(sorted_messages) >= 6 else sorted_messages
+        
+        # Format messages for the prompt
+        conversation = "\n".join([
+            f"{'User' if msg.role == 'user' else 'Assistant'}: {msg.content[:200]}..."
+            if len(msg.content) > 200 else f"{'User' if msg.role == 'user' else 'Assistant'}: {msg.content}"
+            for msg in recent_messages
+        ])
+        
+        # Create prompt for title generation
+        prompt = f"""Current chat title: "{chat.title}"
+
+Recent conversation:
+{conversation}
+
+Based on the recent conversation, should the title be updated? 
+Be conservative - only suggest a new title if the conversation has significantly shifted topic or if the current title is generic (like "New Chat").
+If the current title already describes the conversation well, keep it.
+
+Respond with ONLY a JSON object in this format:
+{{"update": true/false, "title": "suggested title if update is true"}}
+
+The title should be concise (3-7 words), descriptive, and capture the main topic."""
+
+        # Use the Azure OpenAI service for title generation
+        from app.services.azure_openai import azure_openai_service
+        import re
+        
+        # Get response from LLM
+        response_text = ""
+        async for chunk in azure_openai_service.generate_chat_completion(
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that generates concise chat titles based on conversation content. Always respond with valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,  # Lower temperature for more consistent output
+            max_tokens=100
+        ):
+            response_text += chunk
+        
+        # Parse the response
+        try:
+            # Extract JSON from the response
+            json_match = re.search(r'\{.*?\}', response_text, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+                
+                if result.get("update") and result.get("title"):
+                    # Update the chat title
+                    chat.title = result["title"]
+                    await db.commit()
+                    
+                    return {
+                        "updated": True,
+                        "title": result["title"],
+                        "message": "Title updated successfully"
+                    }
+        except (json.JSONDecodeError, AttributeError) as e:
+            print(f"Failed to parse title response: {e}, Response: {response_text}")
+        
+        return {
+            "updated": False,
+            "title": chat.title,
+            "message": "Title remains unchanged"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update title: {str(e)}")
+
+
+@router.patch("/chats/{chat_id}")
+async def update_chat(
+    chat_id: UUID,
+    request: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update chat properties (like title)"""
+    from app.models.chat import Chat
+    from sqlalchemy import select
+    
+    try:
+        # Get the chat
+        result = await db.execute(
+            select(Chat).where(Chat.id == chat_id, Chat.user_id == current_user.id)
+        )
+        chat = result.scalar_one_or_none()
+        
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        
+        # Update title if provided
+        if "title" in request:
+            chat.title = request["title"]
+        
+        await db.commit()
+        
+        return {
+            "message": "Chat updated successfully",
+            "chat_id": str(chat_id),
+            "title": chat.title
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update chat: {str(e)}")
 
 
 @router.post("/search")

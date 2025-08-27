@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { marked } from 'marked';
-	import { onMount, createEventDispatcher } from 'svelte';
+	import { createEventDispatcher } from 'svelte';
 	import DocumentReferences from './DocumentReferences.svelte';
+	import MathRenderer from './MathRenderer.svelte';
 	import type { DocumentReference } from '$lib/api';
 
 	export let message: {
@@ -13,7 +13,6 @@
 	export let documentReferences: DocumentReference[] = [];
 
 	const dispatch = createEventDispatcher();
-	let parsedContent = '';
 	let showDeleteModal = false;
 	
 	// Check localStorage for "don't ask again" preference
@@ -27,26 +26,6 @@
 	function setSkipDeleteConfirmation(skip: boolean) {
 		if (typeof window !== 'undefined') {
 			localStorage.setItem('skipDeleteConfirmation', skip.toString());
-		}
-	}
-
-	// Configure marked options
-	marked.setOptions({
-		breaks: true, // Enable line breaks
-		gfm: true, // Enable GitHub Flavored Markdown
-	});
-
-	$: {
-		if (message.role === 'assistant') {
-			// Parse markdown for assistant messages
-			parsedContent = marked.parse(message.content) as string;
-		} else {
-			// For user messages, just escape HTML and preserve line breaks
-			parsedContent = message.content
-				.replace(/&/g, '&amp;')
-				.replace(/</g, '&lt;')
-				.replace(/>/g, '&gt;')
-				.replace(/\n/g, '<br>');
 		}
 	}
 
@@ -128,7 +107,7 @@
 							prose-blockquote:border-l-blue-500 prose-blockquote:bg-blue-50/50 prose-blockquote:p-4 prose-blockquote:rounded-r-lg
 							prose-ul:list-disc prose-ol:list-decimal prose-li:my-1
 							prose-table:border-collapse prose-th:border prose-th:border-gray-300 prose-th:p-2 prose-th:bg-gray-50 prose-td:border prose-td:border-gray-300 prose-td:p-2">
-					{@html parsedContent}
+					<MathRenderer content={message.content} />
 				</div>
 				
 				<!-- Document References (for assistant messages) -->
