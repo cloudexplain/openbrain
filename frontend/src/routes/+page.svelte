@@ -26,6 +26,11 @@
 	// Track document references for each message
 	let messageDocumentReferences: Map<string, DocumentReference[]> = new Map();
 	
+	// Track message count for auto-title updates
+	let messageCountSinceLastTitleUpdate = 0;
+	let totalMessageCount = 0;
+	let lastUserPromptForRename = 0;
+	
 	// Drag and drop state
 	let isDragOver = false;
 	let uploadingFiles: Array<{name: string, progress: number, status: 'uploading' | 'success' | 'error'}> = [];
@@ -85,6 +90,75 @@
 		notifications = notifications.filter((n) => n.id !== id);
 	}
 
+	async function autoUpdateChatTitle() {
+		if (!currentChatId) return;
+		
+		try {
+			const response = await fetch(`/api/v1/chats/${currentChatId}/auto-update-title`, {
+				method: 'POST',
+				headers: authService.getAuthHeaders()
+			});
+			
+			if (response.ok) {
+				const result = await response.json();
+				if (result.updated) {
+					currentChatTitle = result.title;
+					// Update the chat in the list
+					const chatIndex = chats.findIndex(c => c.id === currentChatId);
+					if (chatIndex !== -1) {
+						chats[chatIndex].title = result.title;
+						chats = chats; // Trigger reactivity
+					}
+					console.log('Chat title auto-updated to:', result.title);
+				}
+			}
+		} catch (error) {
+			console.error('Failed to auto-update chat title:', error);
+		}
+	}
+
+	async function promptUserForRename() {
+		if (!currentChatId || !currentChatTitle) return;
+		
+		// Create a more user-friendly prompt
+		const newTitle = prompt(
+			`Would you like to rename this conversation?\n\nCurrent title: "${currentChatTitle}"\n\nEnter a new title (or click Cancel to keep current title):`,
+			currentChatTitle
+		);
+		
+		if (newTitle && newTitle !== currentChatTitle && newTitle.trim()) {
+			try {
+				// Update via the existing API endpoint
+				const response = await fetch(`/api/v1/chats/${currentChatId}`, {
+					method: 'PATCH',
+					headers: {
+						'Content-Type': 'application/json',
+						...authService.getAuthHeaders()
+					},
+					body: JSON.stringify({
+						title: newTitle.trim()
+					})
+				});
+				
+				if (response.ok) {
+					currentChatTitle = newTitle.trim();
+					// Update the chat in the list
+					const chatIndex = chats.findIndex(c => c.id === currentChatId);
+					if (chatIndex !== -1) {
+						chats[chatIndex].title = newTitle.trim();
+						chats = chats; // Trigger reactivity
+					}
+					showNotification(`Chat renamed to "${newTitle.trim()}"`, 'success');
+				} else {
+					showNotification('Failed to rename chat', 'error');
+				}
+			} catch (error) {
+				console.error('Failed to rename chat:', error);
+				showNotification('Failed to rename chat', 'error');
+			}
+		}
+	}
+
 	const generateUUID = () => {
 		if (crypto.randomUUID) {
 			return crypto.randomUUID();
@@ -115,6 +189,11 @@
 		messages = [...messages, userMessage];
 		isLoading = true;
 		streamingMessage = "";
+		
+		// Increment message counter for user message
+		messageCountSinceLastTitleUpdate++;
+		totalMessageCount++;
+		console.log(`Total messages after user input: ${totalMessageCount}, since last title update: ${messageCountSinceLastTitleUpdate}`);
 
 		try {
 			console.log("Sending message to backend");
@@ -234,6 +313,26 @@
 									currentChatId =
 										streamResponse.chat_id;
 								}
+								
+								// Increment message counters
+								messageCountSinceLastTitleUpdate++;
+								totalMessageCount++;
+								console.log(`Total messages: ${totalMessageCount}, since last title update: ${messageCountSinceLastTitleUpdate}`);
+								
+								// Auto-update title after first message or every 3 messages
+								if ((totalMessageCount === 2 || messageCountSinceLastTitleUpdate >= 3) && currentChatId) {
+									console.log('Triggering auto title update for chat:', currentChatId);
+									messageCountSinceLastTitleUpdate = 0;
+									// Auto-update title after a short delay to ensure messages are saved
+									setTimeout(() => autoUpdateChatTitle(), 2000);
+								}
+								
+								// Ask user for rename every 5 messages (but not too frequently)
+								if (totalMessageCount >= 5 && (totalMessageCount - lastUserPromptForRename) >= 5) {
+									lastUserPromptForRename = totalMessageCount;
+									// Prompt user after a longer delay to not interfere with auto-update
+									setTimeout(() => promptUserForRename(), 4000);
+								}
 							}
 						} catch (error) {
 							console.error(
@@ -297,6 +396,9 @@
 			currentChatTitle = newChat.title;
 			messages = [];
 			streamingMessage = "";
+			messageCountSinceLastTitleUpdate = 0; // Reset counter for new chat
+			totalMessageCount = 0; // Reset total counter for new chat
+			lastUserPromptForRename = 0; // Reset prompt counter
 
 			// Add the new chat to the chats list at the beginning
 			chats = [newChat, ...chats];
@@ -352,6 +454,9 @@
 			console.log("[handleSelectChat] Raw chat data:", chat);
 			messages = chat.messages || [];
 			currentChatTitle = chat.title || "";
+			messageCountSinceLastTitleUpdate = 0; // Reset counter when switching chats
+			totalMessageCount = messages.length; // Set total count based on existing messages
+			lastUserPromptForRename = 0; // Reset prompt counter
 			console.log(
 				"[handleSelectChat] Set messages:",
 				messages.length,
@@ -459,25 +564,23 @@
 
 			const body: any = {
 				title,
-				save_mode:
-					mode === "document"
-						? "content"
-						: "messages",
+				mode: mode === "document" ? "document" : "messages",
 			};
 
-			if (typeof content === "string") {
+			if (mode === "document") {
 				body.content = content;
 			} else {
-				body.content = content;
+				body.messages = content;
 			}
 
 			const response = await fetch(
-				`/api/v1/chats/${currentChatId}/save-to-knowledge`,
+				`/api/v1/chats/${currentChatId}/save-to-knowledge-edited`,
 				{
 					method: "POST",
 					headers: {
 						"Content-Type":
 							"application/json",
+						...authService.getAuthHeaders()
 					},
 					body: JSON.stringify(body),
 				},
@@ -496,6 +599,10 @@
 				"success",
 			);
 			showKnowledgeModal = false;
+			// Update the current chat title in the UI
+			currentChatTitle = title;
+			// Refresh both chats and documents lists
+			await Promise.all([reloadChats(), reloadDocuments()]);
 		} catch (error) {
 			console.error(
 				"Failed to save chat to knowledge:",
