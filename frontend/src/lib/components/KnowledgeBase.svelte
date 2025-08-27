@@ -50,7 +50,11 @@
 	let isEditMode = false;
 	let editedChunks: DocumentChunk[] = [];
 	let editedTitle = "";
+	let editedContent = "";  // Single unified content for editing
 	let hasChanges = false;
+	let displayMode: "formatted" | "raw" = "formatted";  // Display mode toggle
+	let formattedEditorRef: HTMLDivElement;  // Reference to contenteditable div
+	let isUpdatingFormatted = false;  // Flag to prevent recursive updates
 	
 	// Cache for loaded documents to avoid re-fetching
 	let documentCache: Map<string, DocumentDetail> = new Map();
@@ -231,6 +235,10 @@
 				JSON.stringify(selectedDocumentChunks.chunks),
 			); // Deep clone
 			editedTitle = selectedDocumentChunks.title;
+			
+			// Combine all chunks into single content for unified editing
+			editedContent = editedChunks.map(chunk => chunk.content).join('\n\n');
+			
 			hasChanges = false;
 		} catch (error) {
 			console.error("Failed to load document chunks:", error);
@@ -249,6 +257,7 @@
 		selectedDocumentChunks = null;
 		editedChunks = [];
 		editedTitle = "";
+		editedContent = "";
 		hasChanges = false;
 	}
 	
@@ -258,9 +267,9 @@
 		isPdfDocument = false;
 	}
 
-	function handleChunkEdit(chunkIndex: number, newContent: string) {
-		if (editedChunks[chunkIndex].content !== newContent) {
-			editedChunks[chunkIndex].content = newContent;
+	function handleContentEdit(newContent: string) {
+		if (editedContent !== newContent) {
+			editedContent = newContent;
 			hasChanges = true;
 		}
 	}
@@ -282,19 +291,34 @@
 		);
 
 		try {
-			// Only send chunks that have been modified
-			const modifiedChunks = editedChunks.filter(
-				(chunk, index) => {
-					if (!selectedDocumentChunks)
-						return false;
-					return (
-						chunk.content !==
-						selectedDocumentChunks.chunks[
-							index
-						].content
-					);
-				},
-			);
+			// Split the unified content back into chunks
+			// We'll use a simple strategy: split by double newlines or by max chunk size
+			const chunkSize = 1500; // Approximate chunk size in characters
+			const paragraphs = editedContent.split('\n\n');
+			const newChunks = [];
+			let currentChunk = '';
+			
+			for (const paragraph of paragraphs) {
+				if ((currentChunk + '\n\n' + paragraph).length > chunkSize && currentChunk.length > 0) {
+					// Save current chunk and start new one
+					newChunks.push({
+						content: currentChunk.trim(),
+						id: editedChunks[newChunks.length]?.id // Keep existing ID if available
+					});
+					currentChunk = paragraph;
+				} else {
+					// Add to current chunk
+					currentChunk = currentChunk ? currentChunk + '\n\n' + paragraph : paragraph;
+				}
+			}
+			
+			// Don't forget the last chunk
+			if (currentChunk.trim()) {
+				newChunks.push({
+					content: currentChunk.trim(),
+					id: editedChunks[newChunks.length]?.id
+				});
+			}
 
 			// Use direct API call through proxy (same pattern as chat operations)
 			const response = await fetch(
@@ -307,7 +331,7 @@
 					},
 					body: JSON.stringify({
 						title: editedTitle,
-						chunks: modifiedChunks,
+						chunks: newChunks,  // Send all chunks (full replacement)
 					}),
 				},
 			);
@@ -874,23 +898,38 @@
 						</div>
 					</div>
 
-					<!-- PDF View Toggle (only for PDF documents) -->
-					{#if isPdfDocument && !isEditMode}
+					<!-- View Toggle -->
+					{#if !isEditMode}
 						<div class="mt-3 flex items-center gap-3">
 							<span class="text-sm text-gray-600">View:</span>
 							<div class="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
-								<button
-									on:click={() => viewMode = "raw"}
-									class="px-3 py-1 text-sm rounded-md transition-colors {viewMode === 'raw' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
-								>
-									Raw
-								</button>
-								<button
-									on:click={() => viewMode = "pdf"}
-									class="px-3 py-1 text-sm rounded-md transition-colors {viewMode === 'pdf' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
-								>
-									PDF
-								</button>
+								{#if isPdfDocument}
+									<button
+										on:click={() => viewMode = "raw"}
+										class="px-3 py-1 text-sm rounded-md transition-colors {viewMode === 'raw' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
+									>
+										Raw
+									</button>
+									<button
+										on:click={() => viewMode = "pdf"}
+										class="px-3 py-1 text-sm rounded-md transition-colors {viewMode === 'pdf' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
+									>
+										PDF
+									</button>
+								{:else}
+									<button
+										on:click={() => displayMode = "formatted"}
+										class="px-3 py-1 text-sm rounded-md transition-colors {displayMode === 'formatted' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
+									>
+										Formatted
+									</button>
+									<button
+										on:click={() => displayMode = "raw"}
+										class="px-3 py-1 text-sm rounded-md transition-colors {displayMode === 'raw' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
+									>
+										Raw Markdown
+									</button>
+								{/if}
 							</div>
 						</div>
 					{/if}
@@ -918,57 +957,80 @@
 				<div
 					class="flex-1 overflow-y-auto bg-white custom-scrollbar min-h-0 relative {viewMode === 'pdf' ? 'p-0' : 'px-6 py-4'}"
 				>
-					{#if isEditMode && editedChunks.length > 0}
-						<div class="space-y-4">
-							{#each editedChunks as chunk, index}
-								<div
-									class="border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition-colors"
+					{#if isEditMode}
+						<!-- Display mode toggle for edit mode -->
+						<div class="mb-4 flex items-center gap-3 sticky top-0 bg-white pb-2 border-b border-gray-200 z-10">
+							<span class="text-sm text-gray-600">View:</span>
+							<div class="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+								<button
+									on:click={() => displayMode = "formatted"}
+									class="px-3 py-1 text-sm rounded-md transition-colors {displayMode === 'formatted' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
 								>
-									<div
-										class="flex items-center justify-between mb-2"
-									>
-										<span
-											class="text-xs font-medium text-gray-500"
-										>
-											Chunk
-											{index +
-												1}
-											of
-											{editedChunks.length}
-										</span>
-										<span
-											class="text-xs text-gray-400"
-										>
-											{chunk.token_count}
-											tokens
-										</span>
-									</div>
-									<textarea
-										value={chunk.content}
-										on:input={(
-											e,
-										) =>
-											handleChunkEdit(
-												index,
-												e
-													.currentTarget
-													.value,
-											)}
-										use:autoResize
-										class="w-full p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm overflow-hidden"
-										placeholder="Enter chunk content..."
-									/>
-									{#if chunk.summary}
-										<div
-											class="mt-2 text-xs text-gray-500 italic"
-										>
-											Summary:
-											{chunk.summary}
-										</div>
-									{/if}
-								</div>
-							{/each}
+									Edit Only
+								</button>
+								<button
+									on:click={() => displayMode = "raw"}
+									class="px-3 py-1 text-sm rounded-md transition-colors {displayMode === 'raw' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
+								>
+									Split View
+								</button>
+							</div>
+							<span class="text-xs text-gray-500 ml-auto">
+								{editedContent.length} characters
+							</span>
 						</div>
+						
+						{#if displayMode === "formatted"}
+							<!-- Single edit view -->
+							<div class="space-y-2">
+								<div class="text-xs text-gray-500 mb-2">
+									Edit your markdown below. Use **text** for bold, *text* for italic, # for headings, etc.
+								</div>
+								<textarea
+									value={editedContent}
+									on:input={(e) => handleContentEdit(e.currentTarget.value)}
+									use:autoResize
+									class="w-full p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+									placeholder="Enter document content..."
+									style="min-height: 500px;"
+								/>
+							</div>
+						{:else}
+							<!-- Split view: edit on left, preview on right -->
+							<div class="flex gap-4 h-[600px]">
+								<!-- Edit pane -->
+								<div class="flex-1 flex flex-col">
+									<div class="text-xs text-gray-500 mb-2 font-semibold">MARKDOWN</div>
+									<textarea
+										value={editedContent}
+										on:input={(e) => handleContentEdit(e.currentTarget.value)}
+										class="flex-1 p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm overflow-y-auto"
+										placeholder="Enter document content..."
+									/>
+								</div>
+								
+								<!-- Preview pane -->
+								<div class="flex-1 flex flex-col">
+									<div class="text-xs text-gray-500 mb-2 font-semibold">PREVIEW</div>
+									<div class="flex-1 overflow-y-auto border border-gray-300 rounded-lg p-4 bg-gray-50">
+										<div
+											class="markdown-content prose prose-sm max-w-none
+											prose-headings:text-gray-900
+											prose-p:text-gray-700
+											prose-strong:text-gray-900
+											prose-code:text-pink-600 prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded
+											prose-pre:bg-gray-900 prose-pre:text-gray-100
+											prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:bg-blue-50 prose-blockquote:text-gray-700
+											prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
+											prose-li:text-gray-700
+											prose-hr:border-gray-300"
+										>
+											{@html marked.parse(editedContent)}
+										</div>
+									</div>
+								</div>
+							</div>
+						{/if}
 					{:else if !isEditMode}
 						{#if viewMode === "pdf" && isPdfDocument && selectedDocument}
 							<!-- PDF Viewer -->
@@ -977,8 +1039,11 @@
 								class="absolute inset-0 w-full h-full border-0"
 								title="PDF Viewer"
 							/>
+						{:else if displayMode === "raw"}
+							<!-- Raw markdown display (read-only) -->
+							<pre class="w-full p-4 bg-gray-50 border border-gray-200 rounded-lg font-mono text-sm whitespace-pre-wrap overflow-x-auto">{selectedDocument?.content || ""}</pre>
 						{:else}
-							<!-- Raw/Markdown Content -->
+							<!-- Formatted markdown content -->
 							<div
 								class="markdown-content prose prose-sm max-w-none
 								prose-headings:text-gray-900

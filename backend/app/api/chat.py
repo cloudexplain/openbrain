@@ -682,8 +682,8 @@ async def update_document_chunks(
     chunks_update: dict,
     db: AsyncSession = Depends(get_db)
 ):
-    """Update chunks in a document"""
-    from sqlalchemy import select, update
+    """Update chunks in a document using full replacement strategy"""
+    from sqlalchemy import select, delete
     from app.models.chat import Document, DocumentChunk
     
     try:
@@ -700,35 +700,50 @@ async def update_document_chunks(
         if "title" in chunks_update:
             document.title = chunks_update["title"]
         
-        # Update chunks
-        updated_chunks = []
+        # Full replacement strategy: Delete all existing chunks first
+        await db.execute(
+            delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
+        )
+        
+        # Recreate chunks from the update payload
+        created_chunks = []
         if "chunks" in chunks_update:
-            for chunk_data in chunks_update["chunks"]:
-                chunk_id = UUID(chunk_data["id"])
+            for index, chunk_data in enumerate(chunks_update["chunks"]):
+                chunk_content = chunk_data["content"]
                 
-                # Update chunk content
-                result = await db.execute(
-                    select(DocumentChunk).where(DocumentChunk.id == chunk_id)
+                # Generate embedding for the chunk
+                embedding = embedding_service.embed_text(chunk_content)
+                
+                # Calculate token count
+                token_count = embedding_service.count_tokens(chunk_content)
+                
+                # Create new chunk
+                new_chunk = DocumentChunk(
+                    document_id=document_id,
+                    content=chunk_content,
+                    chunk_index=index,  # Use enumeration index to ensure proper ordering
+                    token_count=token_count,
+                    embedding=embedding,
+                    chunk_metadata=json.dumps({
+                        "source_type": document.source_type,
+                        "edited": True,
+                        "original_chunk_id": chunk_data.get("id")  # Keep reference to original if needed
+                    })
                 )
-                chunk = result.scalar_one_or_none()
                 
-                if chunk is not None and chunk.document_id == document_id:
-                    chunk.content = chunk_data["content"]
-                    
-                    # Re-generate embedding for updated chunk
-                    chunk.embedding = embedding_service.embed_text(chunk_data["content"])
-                    
-                    # Update token count
-                    chunk.token_count = len(chunk_data["content"].split())  # Simple approximation
-                    
-                    updated_chunks.append(str(chunk_id))
+                db.add(new_chunk)
+                created_chunks.append({
+                    "index": index,
+                    "content_preview": chunk_content[:100] + "..." if len(chunk_content) > 100 else chunk_content
+                })
         
         await db.commit()
         
         return {
-            "message": "Document updated successfully",
-            "updated_chunks": updated_chunks,
-            "document_id": str(document_id)
+            "message": f"Document updated successfully with {len(created_chunks)} chunks",
+            "chunks_replaced": len(created_chunks),
+            "document_id": str(document_id),
+            "title": document.title
         }
         
     except Exception as e:
