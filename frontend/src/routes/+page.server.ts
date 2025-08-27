@@ -1,22 +1,57 @@
 // Server-side code - runs in the SvelteKit server
 import type { PageServerLoad, Actions } from './$types';
-import { fail } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
+import type { Cookies } from '@sveltejs/kit';
 
-export const load: PageServerLoad = async () => {
+// Helper function to get auth headers for backend requests
+function getAuthHeaders(cookies: Cookies): HeadersInit {
+	const sessionId = cookies.get('sessionid');
+	if (sessionId) {
+		return {
+			'Cookie': `sessionid=${sessionId}`
+		};
+	}
+	return {};
+}
+
+export const load: PageServerLoad = async ({ cookies }) => {
 	console.log('[+page.server.ts] Loading page data...');
 	
+	const authHeaders = getAuthHeaders(cookies);
+	console.log('[+page.server.ts] Session cookie:', cookies.get('sessionid') ? 'present' : 'missing');
+	
 	try {
-		// Fetch both chats and documents in parallel
+		// Fetch both chats and documents in parallel, forwarding cookies
 		const [chatsResponse, documentsResponse] = await Promise.all([
-			fetch('http://backend:8000/api/v1/chats'),
-			fetch('http://backend:8000/api/v1/documents')
+			fetch('http://backend:8000/api/v1/chats', {
+				headers: authHeaders
+			}),
+			fetch('http://backend:8000/api/v1/documents', {
+				headers: authHeaders
+			})
 		]);
 		
+		// Check for verification required on chats response
 		if (!chatsResponse.ok) {
+			if (chatsResponse.status === 403) {
+				const verificationRequired = chatsResponse.headers.get('X-Verification-Required');
+				if (verificationRequired === 'true') {
+					// Redirect to verification page
+					throw redirect(302, '/verify-email');
+				}
+			}
 			throw new Error(`Failed to load chats: ${chatsResponse.status}`);
 		}
 		
+		// Check for verification required on documents response  
 		if (!documentsResponse.ok) {
+			if (documentsResponse.status === 403) {
+				const verificationRequired = documentsResponse.headers.get('X-Verification-Required');
+				if (verificationRequired === 'true') {
+					// Redirect to verification page
+					throw redirect(302, '/verify-email');
+				}
+			}
 			throw new Error(`Failed to load documents: ${documentsResponse.status}`);
 		}
 		
@@ -40,7 +75,7 @@ export const load: PageServerLoad = async () => {
 };
 
 export const actions: Actions = {
-	uploadDocument: async ({ request }) => {
+	uploadDocument: async ({ request, cookies }) => {
 		console.log('[+page.server.ts] Upload document action');
 		
 		try {
@@ -60,6 +95,7 @@ export const actions: Actions = {
 			console.log("Calling upload document to", 'http://backend:8000/api/v1/documents/upload');
 			const response = await fetch('http://backend:8000/api/v1/documents/upload', {
 				method: 'POST',
+				headers: getAuthHeaders(cookies),
 				body: backendFormData
 			});
 			
@@ -79,7 +115,7 @@ export const actions: Actions = {
 		}
 	},
 	
-	uploadMultipleDocuments: async ({ request }) => {
+	uploadMultipleDocuments: async ({ request, cookies }) => {
 		console.log('[+page.server.ts] Upload multiple documents action');
 		
 		try {
@@ -101,6 +137,7 @@ export const actions: Actions = {
 			console.log("Calling upload multiple documents to", 'http://backend:8000/api/v1/documents/upload-multiple');
 			const response = await fetch('http://backend:8000/api/v1/documents/upload-multiple', {
 				method: 'POST',
+				headers: getAuthHeaders(cookies),
 				body: backendFormData
 			});
 			
@@ -120,12 +157,14 @@ export const actions: Actions = {
 		}
 	},
 	
-	getDocument: async ({ request }) => {
+	getDocument: async ({ request, cookies }) => {
 		const formData = await request.formData();
 		const documentId = formData.get('documentId') as string;
 		
 		try {
-			const response = await fetch(`http://backend:8000/api/v1/documents/${documentId}`);
+			const response = await fetch(`http://backend:8000/api/v1/documents/${documentId}`, {
+				headers: getAuthHeaders(cookies)
+			});
 			
 			if (!response.ok) {
 				return fail(response.status, { error: `Failed to load document: ${response.statusText}` });
@@ -139,13 +178,14 @@ export const actions: Actions = {
 		}
 	},
 	
-	deleteDocument: async ({ request }) => {
+	deleteDocument: async ({ request, cookies }) => {
 		const formData = await request.formData();
 		const documentId = formData.get('documentId') as string;
 		
 		try {
 			const response = await fetch(`http://backend:8000/api/v1/documents/${documentId}`, {
-				method: 'DELETE'
+				method: 'DELETE',
+				headers: getAuthHeaders(cookies)
 			});
 			
 			if (!response.ok) {
@@ -159,7 +199,7 @@ export const actions: Actions = {
 		}
 	},
 	
-	sendMessage: async ({ request }) => {
+	sendMessage: async ({ request, cookies }) => {
 		const formData = await request.formData();
 		const message = formData.get('message') as string;
 		const chatId = formData.get('chatId') as string | null;
@@ -170,7 +210,8 @@ export const actions: Actions = {
 			const response = await fetch('http://backend:8000/api/v1/chat', {
 				method: 'POST',
 				headers: {
-					'Content-Type': 'application/json'
+					'Content-Type': 'application/json',
+					...getAuthHeaders(cookies)
 				},
 				body: JSON.stringify({
 					message,
@@ -198,14 +239,16 @@ export const actions: Actions = {
 		}
 	},
 	
-	getChat: async ({ request }) => {
+	getChat: async ({ request, cookies }) => {
 		const formData = await request.formData();
 		const chatId = formData.get('chatId') as string;
 		
 		console.log('[+page.server.ts] Getting chat:', chatId);
 		
 		try {
-			const response = await fetch(`http://backend:8000/api/v1/chats/${chatId}`);
+			const response = await fetch(`http://backend:8000/api/v1/chats/${chatId}`, {
+				headers: getAuthHeaders(cookies)
+			});
 			
 			if (!response.ok) {
 				return fail(response.status, { error: `Failed to load chat: ${response.statusText}` });
@@ -220,7 +263,7 @@ export const actions: Actions = {
 		}
 	},
 	
-	deleteChat: async ({ request }) => {
+	deleteChat: async ({ request, cookies }) => {
 		const formData = await request.formData();
 		const chatId = formData.get('chatId') as string;
 		
@@ -228,7 +271,8 @@ export const actions: Actions = {
 		
 		try {
 			const response = await fetch(`http://backend:8000/api/v1/chats/${chatId}`, {
-				method: 'DELETE'
+				method: 'DELETE',
+				headers: getAuthHeaders(cookies)
 			});
 			
 			if (!response.ok) {
@@ -243,14 +287,16 @@ export const actions: Actions = {
 		}
 	},
 	
-	getDocumentChunks: async ({ request }) => {
+	getDocumentChunks: async ({ request, cookies }) => {
 		const formData = await request.formData();
 		const documentId = formData.get('documentId') as string;
 		
 		console.log('[+page.server.ts] Getting document chunks:', documentId);
 		
 		try {
-			const response = await fetch(`http://backend:8000/api/v1/documents/${documentId}/chunks`);
+			const response = await fetch(`http://backend:8000/api/v1/documents/${documentId}/chunks`, {
+				headers: getAuthHeaders(cookies)
+			});
 			
 			if (!response.ok) {
 				return fail(response.status, { error: `Failed to load document chunks: ${response.statusText}` });
@@ -267,7 +313,7 @@ export const actions: Actions = {
 		}
 	},
 	
-	updateDocumentChunks: async ({ request }) => {
+	updateDocumentChunks: async ({ request, cookies }) => {
 		const formData = await request.formData();
 		const documentId = formData.get('documentId') as string;
 		const title = formData.get('title') as string;
@@ -281,7 +327,8 @@ export const actions: Actions = {
 			const response = await fetch(`http://backend:8000/api/v1/documents/${documentId}/chunks`, {
 				method: 'PUT',
 				headers: {
-					'Content-Type': 'application/json'
+					'Content-Type': 'application/json',
+					...getAuthHeaders(cookies)
 				},
 				body: JSON.stringify({
 					title,
@@ -306,7 +353,7 @@ export const actions: Actions = {
 		}
 	},
 	
-	saveChatToKnowledge: async ({ request }) => {
+	saveChatToKnowledge: async ({ request, cookies }) => {
 		const formData = await request.formData();
 		const chatId = formData.get('chatId') as string;
 		const title = formData.get('title') as string | null;
@@ -332,14 +379,16 @@ export const actions: Actions = {
 				response = await fetch(`http://backend:8000/api/v1/chats/${chatId}/save-to-knowledge`, {
 					method: 'POST',
 					headers: {
-						'Content-Type': 'application/json'
+						'Content-Type': 'application/json',
+						...getAuthHeaders(cookies)
 					},
 					body: JSON.stringify(body)
 				});
 			} else {
 				// Simple save without custom content
 				response = await fetch(`http://backend:8000/api/v1/chats/${chatId}/save-to-knowledge`, {
-					method: 'POST'
+					method: 'POST',
+					headers: getAuthHeaders(cookies)
 				});
 			}
 			

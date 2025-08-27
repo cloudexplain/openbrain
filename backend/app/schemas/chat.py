@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Union
 from uuid import UUID
-from pydantic import ConfigDict, BaseModel
+from pydantic import ConfigDict, BaseModel, Field, field_serializer
 
 
 class MessageBase(BaseModel):
@@ -19,6 +19,10 @@ class Message(MessageBase):
     created_at: datetime
     token_count: Optional[int] = None
     model_config = ConfigDict(from_attributes=True)
+    
+    @field_serializer('id', 'chat_id')
+    def serialize_uuid(self, value: UUID) -> str:
+        return str(value)
 
 
 class ChatBase(BaseModel):
@@ -39,6 +43,10 @@ class Chat(ChatBase):
     updated_at: datetime
     messages: List[Message] = []
     model_config = ConfigDict(from_attributes=True)
+    
+    @field_serializer('id')
+    def serialize_uuid(self, value: UUID) -> str:
+        return str(value)
 
 
 class ChatListItem(BaseModel):
@@ -49,6 +57,10 @@ class ChatListItem(BaseModel):
     last_message: Optional[str] = None
     message_count: int = 0
     model_config = ConfigDict(from_attributes=True)
+    
+    @field_serializer('id')
+    def serialize_uuid(self, value: UUID) -> str:
+        return str(value)
 
 
 class ChatRequest(BaseModel):

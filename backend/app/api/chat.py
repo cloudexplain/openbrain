@@ -11,6 +11,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.models.database import get_db
+from app.models.user import User
+from app.core.deps import get_current_user
 from app.schemas.chat import (
     Chat, ChatCreate, ChatUpdate, ChatListItem, 
     ChatRequest, StreamResponse, Message
@@ -22,18 +24,22 @@ router = APIRouter()
 
 
 @router.get("/chats", response_model=List[ChatListItem])
-async def get_chats(db: AsyncSession = Depends(get_db)):
-    """Get all chats"""
-    return await ChatService.get_chats(db)
+async def get_chats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all chats for current user"""
+    return await ChatService.get_chats(db, current_user.id)
 
 
 @router.post("/chats")
 async def create_chat(
-    chat_data: ChatCreate, 
+    chat_data: ChatCreate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Create a new chat"""
-    db_chat = await ChatService.create_chat(db, chat_data)
+    """Create a new chat for current user"""
+    db_chat = await ChatService.create_chat(db, chat_data, current_user.id)
     
     # Return manual dict instead of relying on Pydantic model conversion
     return {
@@ -47,11 +53,12 @@ async def create_chat(
 
 @router.get("/chats/{chat_id}", response_model=Chat)
 async def get_chat(
-    chat_id: UUID, 
+    chat_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get a specific chat with messages"""
-    chat = await ChatService.get_chat(db, chat_id)
+    """Get a specific chat with messages for current user"""
+    chat = await ChatService.get_chat(db, chat_id, current_user.id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     return chat
@@ -59,11 +66,12 @@ async def get_chat(
 
 @router.delete("/chats/{chat_id}")
 async def delete_chat(
-    chat_id: UUID, 
+    chat_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete a chat"""
-    success = await ChatService.delete_chat(db, chat_id)
+    """Delete a chat for current user"""
+    success = await ChatService.delete_chat(db, chat_id, current_user.id)
     if not success:
         raise HTTPException(status_code=404, detail="Chat not found")
     return {"message": "Chat deleted successfully"}
@@ -72,6 +80,7 @@ async def delete_chat(
 @router.post("/chat")
 async def chat_with_ai(
     request: ChatRequest,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Send a message and get AI response (streaming)"""
@@ -80,7 +89,8 @@ async def chat_with_ai(
         chat = await ChatService.get_or_create_chat(
             db, 
             request.chat_id, 
-            title=request.message[:50] + "..." if len(request.message) > 50 else request.message
+            title=request.message[:50] + "..." if len(request.message) > 50 else request.message,
+            user_id=current_user.id
         )
         
         async def generate_stream():
@@ -89,6 +99,7 @@ async def chat_with_ai(
                     db, 
                     chat.id, 
                     request.message,
+                    current_user.id,
                     use_rag=request.use_rag,
                     rag_limit=request.rag_limit,
                     rag_threshold=request.rag_threshold
@@ -151,10 +162,11 @@ async def chat_with_ai(
 @router.get("/chats/{chat_id}/messages", response_model=List[Message])
 async def get_chat_messages(
     chat_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all messages for a specific chat"""
-    chat = await ChatService.get_chat(db, chat_id)
+    """Get all messages for a specific chat for current user"""
+    chat = await ChatService.get_chat(db, chat_id, current_user.id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     
@@ -164,11 +176,12 @@ async def get_chat_messages(
 @router.post("/chats/{chat_id}/save-to-knowledge")
 async def save_chat_to_knowledge(
     chat_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Save a chat conversation to the vector knowledge base"""
+    """Save a chat conversation to the vector knowledge base for current user"""
     # Get the chat with all messages
-    chat = await ChatService.get_chat(db, chat_id)
+    chat = await ChatService.get_chat(db, chat_id, current_user.id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     
@@ -209,6 +222,7 @@ async def save_chat_to_knowledge(
 async def save_edited_chat_to_knowledge(
     chat_id: UUID,
     request: dict,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Save an edited chat conversation to the vector knowledge base"""
@@ -226,6 +240,7 @@ async def save_edited_chat_to_knowledge(
             # Create document
             chat_document = Document(
                 title=title,
+                user_id=current_user.id,
                 source_type="chat",
                 source_id=str(chat_id),
                 document_metadata=json.dumps({
@@ -275,6 +290,7 @@ async def save_edited_chat_to_knowledge(
             # Create document
             chat_document = Document(
                 title=title,
+                user_id=current_user.id,
                 source_type="chat",
                 source_id=str(chat_id),
                 document_metadata=json.dumps({
@@ -346,6 +362,7 @@ async def search_knowledge(
     limit: int = 5,
     similarity_threshold: float = 0.7,
     source_types: List[str] = None,  # e.g., ['chat', 'file']
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Search across all knowledge (chats, documents, etc.) using vector similarity"""
@@ -353,6 +370,7 @@ async def search_knowledge(
         results = await embedding_service.similarity_search(
             db=db,
             query=query,
+            user_id=current_user.id,
             limit=limit,
             similarity_threshold=similarity_threshold,
             source_types=source_types
@@ -394,6 +412,7 @@ async def search_knowledge(
 
 @router.get("/documents")
 async def get_documents(
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get all documents in the knowledge base - metadata only for performance"""
@@ -409,7 +428,7 @@ async def get_documents(
             func.count(DocumentChunk.id).label('chunk_count')
         ).outerjoin(
             DocumentChunk, Document.id == DocumentChunk.document_id
-        ).group_by(Document.id)
+        ).where(Document.user_id == current_user.id).group_by(Document.id)
         
         result = await db.execute(stmt)
         documents_with_counts = result.all()
@@ -436,6 +455,7 @@ async def get_documents(
 @router.get("/documents/{document_id}")
 async def get_document(
     document_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get a specific document with all its chunks (full content)"""
@@ -447,7 +467,7 @@ async def get_document(
     try:
         result = await db.execute(
             select(Document)
-            .where(Document.id == document_id)
+            .where(Document.id == document_id, Document.user_id == current_user.id)
             .options(selectinload(Document.chunks))
         )
         document = result.scalar_one_or_none()
@@ -479,6 +499,7 @@ async def get_document(
 @router.get("/documents/{document_id}/chunks")
 async def get_document_chunks(
     document_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get a document with individual chunks for editing"""
@@ -489,7 +510,7 @@ async def get_document_chunks(
     try:
         result = await db.execute(
             select(Document)
-            .where(Document.id == document_id)
+            .where(Document.id == document_id, Document.user_id == current_user.id)
             .options(selectinload(Document.chunks))
         )
         document = result.scalar_one_or_none()
@@ -528,6 +549,7 @@ async def get_document_chunks(
 async def update_document_chunks(
     document_id: UUID,
     chunks_update: dict,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Update chunks in a document"""
@@ -537,7 +559,7 @@ async def update_document_chunks(
     try:
         # Verify document exists
         result = await db.execute(
-            select(Document).where(Document.id == document_id)
+            select(Document).where(Document.id == document_id, Document.user_id == current_user.id)
         )
         document = result.scalar_one_or_none()
         
@@ -588,24 +610,32 @@ async def process_document_background(
     file_path: str,
     original_filename: str,
     file_type: str,
-    upload_id: str
+    upload_id: str,
+    user_id: str
 ):
     """Background task to process uploaded document"""
-    from app.models.database import AsyncSessionLocal
+    from app.models.database import create_session_local
     
     try:
         # Create a new database session for the background task
-        async with AsyncSessionLocal() as db:
-            # Process the document using the embedding service
-            document_id, chunks_created = await embedding_service.process_uploaded_document(
-                db=db,
-                file_path=file_path,
-                original_filename=original_filename,
-                file_type=file_type
-            )
-            
-            # Store success status (you could store this in Redis or a status table)
-            print(f"Successfully processed document: {document_id}, created {chunks_created} chunks")
+        session_local, engine = create_session_local()
+        async with session_local() as db:
+            try:
+                # Process the document using the embedding service
+                document_id, chunks_created = await embedding_service.process_uploaded_document(
+                    db=db,
+                    file_path=file_path,
+                    original_filename=original_filename,
+                    file_type=file_type,
+                    user_id=user_id
+                )
+                
+                # Store success status (you could store this in Redis or a status table)
+                print(f"Successfully processed document: {document_id}, created {chunks_created} chunks")
+                
+            finally:
+                # Make sure to dispose of the engine
+                await engine.dispose()
             
     except Exception as e:
         # Clean up file if processing failed
@@ -619,6 +649,7 @@ async def process_document_background(
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Upload a document file and process it asynchronously in the background"""
@@ -664,7 +695,8 @@ async def upload_document(
             str(file_path),
             file.filename,
             file.content_type,
-            upload_id
+            upload_id,
+            str(current_user.id)
         )
         
         # Return immediately with upload ID
@@ -682,6 +714,7 @@ async def upload_document(
 async def upload_multiple_documents(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Upload multiple document files and process them asynchronously in the background"""
@@ -738,7 +771,8 @@ async def upload_multiple_documents(
                 str(file_path),
                 file.filename,
                 file.content_type,
-                upload_id
+                upload_id,
+                str(current_user.id)
             )
             
             upload_results.append({
@@ -766,6 +800,7 @@ async def upload_multiple_documents(
 @router.delete("/documents/{document_id}")
 async def delete_document(
     document_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete a document and all its chunks from the database"""
@@ -802,6 +837,7 @@ async def delete_document(
 async def search_documents_by_name(
     query: str = "",
     limit: int = 10,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Search documents by title for autocomplete functionality"""
@@ -815,7 +851,7 @@ async def search_documents_by_name(
             func.count(DocumentChunk.id).label('chunk_count')
         ).outerjoin(
             DocumentChunk, Document.id == DocumentChunk.document_id
-        ).group_by(Document.id)
+        ).where(Document.user_id == current_user.id).group_by(Document.id)
         
         # Add search filters if query is provided
         if query.strip():
@@ -873,6 +909,7 @@ async def search_documents_by_name(
 @router.get("/documents/{document_id}/pdf")
 async def serve_pdf_file(
     document_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Serve the original PDF file for a document if it exists"""
@@ -882,7 +919,7 @@ async def serve_pdf_file(
     try:
         # Find the document
         result = await db.execute(
-            select(Document).where(Document.id == document_id)
+            select(Document).where(Document.id == document_id, Document.user_id == current_user.id)
         )
         document = result.scalar_one_or_none()
         
@@ -919,6 +956,7 @@ async def serve_pdf_file(
 @router.delete("/messages/{message_id}")
 async def delete_message(
     message_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete a specific message from a chat"""
@@ -926,11 +964,18 @@ async def delete_message(
     from app.models.chat import Message
     
     try:
-        # Find the message
+        # Find the message - need to join with chat to verify user ownership
+        from sqlalchemy.orm import selectinload
         result = await db.execute(
-            select(Message).where(Message.id == message_id)
+            select(Message)
+            .options(selectinload(Message.chat))
+            .where(Message.id == message_id)
         )
         message = result.scalar_one_or_none()
+        
+        # Verify the user owns the chat that contains this message
+        if message and message.chat.user_id != current_user.id:
+            message = None
         
         if not message:
             raise HTTPException(status_code=404, detail="Message not found")
@@ -958,12 +1003,13 @@ async def delete_message(
 @router.post("/chats/{chat_id}/summarize")
 async def summarize_chat(
     chat_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Generate an auto-summary of a chat conversation"""
     try:
         # Get the chat with all messages
-        chat = await ChatService.get_chat(db, chat_id)
+        chat = await ChatService.get_chat(db, chat_id, current_user.id)
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
         

@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 from pathlib import Path
 
-from app.config import settings
+from app.config import get_settings
 from app.models.chat import Chat, Message, Document, DocumentChunk
 
 
@@ -20,9 +20,9 @@ class EmbeddingService:
     def __init__(self):
         # Initialize Azure OpenAI client directly
         self.client = AzureOpenAI(
-            api_version=settings.azure_openai_api_version,
-            azure_endpoint=settings.azure_openai_endpoint,
-            api_key=settings.azure_openai_api_key
+            api_version=get_settings().azure_openai_api_version,
+            azure_endpoint=get_settings().azure_openai_endpoint,
+            api_key=get_settings().azure_openai_api_key
         )
         
         # Initialize text splitter for chunking
@@ -34,7 +34,7 @@ class EmbeddingService:
         )
         
         # Initialize tokenizer for counting tokens
-        self.tokenizer = tiktoken.encoding_for_model(settings.azure_openai_embedding_deployment_name)
+        self.tokenizer = tiktoken.encoding_for_model(get_settings().azure_openai_embedding_deployment_name)
     
     def count_tokens(self, text: str) -> int:
         """Count tokens in text using tiktoken"""
@@ -44,7 +44,7 @@ class EmbeddingService:
         """Generate embedding for a single text"""
         response = self.client.embeddings.create(
             input=[text],
-            model=settings.azure_openai_embedding_deployment_name
+            model=get_settings().azure_openai_embedding_deployment_name
         )
         return response.data[0].embedding
     
@@ -52,7 +52,7 @@ class EmbeddingService:
         """Generate embeddings for multiple texts"""
         response = self.client.embeddings.create(
             input=texts,
-            model=settings.azure_openai_embedding_deployment_name
+            model=get_settings().azure_openai_embedding_deployment_name
         )
         return [item.embedding for item in response.data]
     
@@ -145,6 +145,7 @@ class EmbeddingService:
         # Create Document for this chat
         chat_document = Document(
             title=f"Chat: {chat.title}",
+            user_id=chat.user_id,
             source_type="chat",
             source_id=str(chat.id),
             document_metadata=json.dumps({
@@ -191,6 +192,7 @@ class EmbeddingService:
         self,
         db: AsyncSession,
         query: str,
+        user_id: UUID = None,
         limit: int = 5,
         similarity_threshold: float = 0.7,
         source_types: List[str] = None,
@@ -221,6 +223,10 @@ class EmbeddingService:
                 DocumentChunk.embedding.cosine_distance(query_embedding) < (1.0 - similarity_threshold)
             )
         )
+        
+        # Add user filtering if specified
+        if user_id:
+            stmt = stmt.where(Document.user_id == user_id)
         
         # Add source type filtering if specified
         if source_types:
@@ -301,7 +307,8 @@ class EmbeddingService:
         db: AsyncSession,
         file_path: str,
         original_filename: str,
-        file_type: str
+        file_type: str,
+        user_id: str
     ) -> Tuple[UUID, int]:
         """Process an uploaded document file and store it in the knowledge base"""
         from sqlalchemy import select
@@ -319,6 +326,7 @@ class EmbeddingService:
         document_id = uuid4()
         document = Document(
             id=document_id,
+            user_id=UUID(user_id),
             title=original_filename or f"Uploaded Document {document_id}",
             source_type="file",
             source_id=str(document_id),

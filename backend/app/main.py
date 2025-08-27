@@ -1,7 +1,10 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from app.config import settings
-from app.api import chat, tags, document_tags
+from app.config import get_settings
+
+settings = get_settings()
+from app.api import chat, tags, document_tags, auth
+from app.core.scheduler import session_cleanup_scheduler
 import logging
 
 # Configure logging
@@ -13,6 +16,29 @@ app = FastAPI(
     description="SecondBrain AI Assistant API with RAG support",
     version="1.0.0"
 )
+
+
+# Application lifecycle events
+@app.on_event("startup")
+async def startup_event():
+    """Initialize background tasks on application startup"""
+    logger.info("Starting SecondBrain API...")
+    
+    # Start session cleanup scheduler
+    await session_cleanup_scheduler.start()
+    
+    logger.info("Application startup complete")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up background tasks on application shutdown"""
+    logger.info("Shutting down SecondBrain API...")
+    
+    # Stop session cleanup scheduler
+    await session_cleanup_scheduler.stop()
+    
+    logger.info("Application shutdown complete")
 
 # Debug: Log CORS settings
 logger.info(f"CORS Origins configured: {settings.cors_origins}")
@@ -43,6 +69,13 @@ async def log_requests(request: Request, call_next):
     return response
 
 # Include routers
+# Authentication routes
+app.include_router(
+    auth.router,
+    prefix=settings.api_v1_str + "/auth",
+    tags=["auth"]
+)
+
 # Can be called via /api/v1/chat
 app.include_router(
     chat.router,

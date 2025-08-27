@@ -9,6 +9,7 @@
 	import KnowledgeBase from "$lib/components/KnowledgeBase.svelte";
 	import TagManager from "$lib/components/TagManager.svelte";
 	import type { Message, ChatListItem, StreamResponse, DocumentReference } from "$lib/api";
+	import { authStore, authService } from "$lib/stores/auth";
 
 	// Get data from server
 	export let data;
@@ -46,7 +47,9 @@
 
 	async function reloadChats() {
 		try {
-			const response = await fetch('/api/v1/chats');
+			const response = await fetch('/api/v1/chats', {
+				headers: authService.getAuthHeaders()
+			});
 			if (response.ok) {
 				const loadedChats = await response.json();
 				if (Array.isArray(loadedChats)) {
@@ -60,7 +63,9 @@
 
 	async function reloadDocuments() {
 		try {
-			const response = await fetch('/api/v1/documents');
+			const response = await fetch('/api/v1/documents', {
+				headers: authService.getAuthHeaders()
+			});
 			if (response.ok) {
 				const loadedDocuments = await response.json();
 				if (Array.isArray(loadedDocuments)) {
@@ -124,6 +129,7 @@
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
+					...authService.getAuthHeaders()
 				},
 				body: JSON.stringify({
 					message: event.detail.content,
@@ -266,8 +272,8 @@
 	}
 
 	async function handleNewChat() {
-		// Switch to chat view if we're in knowledge base view
-		if (viewMode === "knowledge") {
+		// Always switch to chat view when creating a new chat
+		if (viewMode !== "chat") {
 			viewMode = "chat";
 		}
 
@@ -277,6 +283,7 @@
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
+					...authService.getAuthHeaders()
 				},
 				body: JSON.stringify({
 					title: "New Chat",
@@ -317,8 +324,8 @@
 			event.detail.id,
 		);
 
-		// Switch to chat view if we're in knowledge base view
-		if (viewMode === "knowledge") {
+		// Always switch to chat view when selecting a chat
+		if (viewMode !== "chat") {
 			viewMode = "chat";
 		}
 
@@ -334,6 +341,9 @@
 			// Use direct API call through proxy
 			const response = await fetch(
 				`/api/v1/chats/${event.detail.id}`,
+				{
+					headers: authService.getAuthHeaders()
+				}
 			);
 
 			console.log(
@@ -399,6 +409,7 @@
 				`/api/v1/chats/${event.detail.id}`,
 				{
 					method: "DELETE",
+					headers: authService.getAuthHeaders()
 				},
 			);
 
@@ -415,7 +426,18 @@
 
 			// Clear current chat if it was deleted
 			if (currentChatId === event.detail.id) {
-				await handleNewChat();
+				// Clear current chat state instead of creating a new one
+				currentChatId = null;
+				messages = [];
+				currentChatTitle = "";
+				streamingMessage = "";
+				messageDocumentReferences.clear();
+				
+				// If there are other chats, optionally select the first one
+				// (commented out to avoid auto-selecting)
+				// if (chats.length > 0) {
+				//     await handleSelectChat({ detail: { id: chats[0].id } });
+				// }
 			}
 		} catch (error) {
 			console.error("Failed to delete chat:", error);
@@ -722,27 +744,57 @@
 						Current conversation ({messages.length}
 						messages)
 					</div>
-					<button
-						on:click={handleSaveToKnowledge}
-						class="flex items-center gap-2 px-3 py-1.5 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors duration-200"
-						title="Save this conversation to knowledge base for future reference"
-					>
-						<svg
-							class="w-4 h-4"
-							fill="none"
-							stroke="currentColor"
-							viewBox="0 0 24 24"
+					<div class="flex items-center gap-3">
+						{#if $authStore.user}
+							<div class="flex items-center gap-2 text-sm text-gray-600">
+								<span>Welcome, {$authStore.user.username}</span>
+								<button
+									on:click={() => authService.logout()}
+									class="text-xs text-gray-500 hover:text-red-600 transition-colors"
+									title="Logout"
+								>
+									Logout
+								</button>
+							</div>
+						{/if}
+						<button
+							on:click={handleSaveToKnowledge}
+							class="flex items-center gap-2 px-3 py-1.5 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors duration-200"
+							title="Save this conversation to knowledge base for future reference"
 						>
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3-3m0 0l-3 3m3-3v12"
-							/>
-						</svg>
-						Save to Knowledge
-					</button>
+							<svg
+								class="w-4 h-4"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3-3m0 0l-3 3m3-3v12"
+								/>
+							</svg>
+							Save to Knowledge
+						</button>
+					</div>
 				</div>
+			{:else}
+				<!-- Show logout even when no chat is active -->
+				{#if $authStore.user}
+					<div class="flex justify-end px-6 py-3 border-b border-gray-100 bg-gray-50/50">
+						<div class="flex items-center gap-2 text-sm text-gray-600">
+							<span>Welcome, {$authStore.user.username}</span>
+							<button
+								on:click={() => authService.logout()}
+								class="text-xs text-gray-500 hover:text-red-600 transition-colors"
+								title="Logout"
+							>
+								Logout
+							</button>
+						</div>
+					</div>
+				{/if}
 			{/if}
 
 			<!-- Chat Messages -->

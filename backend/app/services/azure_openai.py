@@ -1,19 +1,19 @@
 import asyncio
 from typing import AsyncGenerator, Optional
 from openai import AsyncAzureOpenAI
-from app.config import settings
+from app.config import get_settings
 import tiktoken
 
 
 class AzureOpenAIService:
     def __init__(self):
         self.client = AsyncAzureOpenAI(
-            api_key=settings.azure_openai_api_key,
-            api_version=settings.azure_openai_api_version,
-            azure_endpoint=settings.azure_openai_endpoint
+            api_key=get_settings().azure_openai_api_key,
+            api_version=get_settings().azure_openai_api_version,
+            azure_endpoint=get_settings().azure_openai_endpoint
         )
-        self.deployment_name = settings.azure_openai_deployment_name
-        self.embedding_deployment_name = settings.azure_openai_embedding_deployment_name
+        self.deployment_name = get_settings().azure_openai_deployment_name
+        self.embedding_deployment_name = get_settings().azure_openai_embedding_deployment_name
         
         # Initialize tokenizer for token counting
         try:
