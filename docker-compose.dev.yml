@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # PostgreSQL Database with pgvector
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg15
     container_name: secondbrain-postgres
     environment:
       POSTGRES_DB: secondbrain
@@ -33,7 +33,7 @@ services:
 
   # Database initializer - ensures tables exist
   db-init:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg15
     container_name: secondbrain-db-init
     environment:
       PGHOST: postgres
@@ -72,6 +72,7 @@ services:
     working_dir: /app
     environment:
       - DATABASE_URL=postgresql+asyncpg://secondbrain:secondbrain_password@postgres:5432/secondbrain
+      - AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME=text-embedding-3-small
       # - CORS_ORIGINS=http://localhost:5173,http://frontend:5173
     ports:
       - "8000:8000"
@@ -86,8 +87,8 @@ services:
       db-init:
         condition: service_completed_successfully
     restart: unless-stopped
-    command: sleep infinity
-    # command: ./startup.sh
+    # command: sleep infinity
+    command: ./startup.sh
     # command: >
     #   bash -c "
     #     apt-get update && apt-get install -y gcc curl &&
