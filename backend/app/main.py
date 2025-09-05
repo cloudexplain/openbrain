@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.api import chat, tags, document_tags
+from app.api import chat, tags, document_tags, health
 import logging
 
 # Configure logging
@@ -62,6 +62,13 @@ app.include_router(
     document_tags.router,
     prefix=settings.api_v1_str,
     tags=["document-tags"]
+)
+
+# Health check routes
+app.include_router(
+    health.router,
+    prefix=settings.api_v1_str,
+    tags=["health"]
 )
 
 

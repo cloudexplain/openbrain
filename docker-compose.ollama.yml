@@ -1,0 +1,127 @@
+services:
+  # Ollama Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: openbrain-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - openbrain-network
+    restart: unless-stopped
+
+  # Backend Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: openbrain-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # LLM Provider Configuration
+      - LLM_PROVIDER=ollama
+      
+      # Ollama Configuration
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=smollm2:135m
+      - OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+      
+      # Azure OpenAI (falls gewechselt werden soll)
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
+      - AZURE_OPENAI_DEPLOYMENT_NAME=${AZURE_OPENAI_DEPLOYMENT_NAME:-gpt-4}
+      - AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME=${AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME:-text-embedding-ada-002}
+      
+      # Database
+      - DATABASE_URL=postgresql+asyncpg://secondbrain:password@postgres:5432/secondbrain
+      
+      # CORS - JSON Format für pydantic
+      - CORS_ORIGINS=["http://localhost:3000","http://localhost:5173","http://localhost:4173"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    networks:
+      - openbrain-network
+    restart: unless-stopped
+    volumes:
+      - ./backend:/app
+    command: ./startup.sh
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: openbrain-postgres
+    environment:
+      - POSTGRES_DB=secondbrain
+      - POSTGRES_USER=secondbrain
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - openbrain-network
+    restart: unless-stopped
+    command: >
+      bash -c "
+        apt-get update &&
+        apt-get install -y postgresql-15-pgvector &&
+        docker-entrypoint.sh postgres
+      "
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U secondbrain -d secondbrain"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend (optional)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: openbrain-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - openbrain-network
+    restart: unless-stopped
+    environment:
+      - PUBLIC_API_URL=http://localhost:8000
+
+  # Ollama Model Downloader (Init Container)
+  ollama-init:
+    image: alpine:latest
+    container_name: openbrain-ollama-init
+    depends_on:
+      - ollama
+    networks:
+      - openbrain-network
+    volumes:
+      - ./scripts:/scripts
+    command: ["sh", "-c", "apk add --no-cache curl && sleep 15 && curl -X POST http://ollama:11434/api/pull -H 'Content-Type: application/json' -d '{\"name\":\"smollm2:135m\"}' && curl -X POST http://ollama:11434/api/pull -H 'Content-Type: application/json' -d '{\"name\":\"nomic-embed-text\"}'"]
+    restart: "no"
+
+networks:
+  openbrain-network:
+    driver: bridge
+
+volumes:
+  ollama_data:
+  postgres_data:

@@ -9,7 +9,7 @@ import re
 
 from app.models.chat import Chat as ChatModel, Message as MessageModel, Tag, DocumentTag
 from app.schemas.chat import ChatCreate, MessageCreate, ChatListItem, Chat, Message
-from app.services.azure_openai import azure_openai_service
+from app.services.llm_factory import llm_service
 from app.services.embedding_service import embedding_service
 
 
@@ -175,7 +175,7 @@ class ChatService:
     ) -> Message:
         """Add a message to a chat"""
         # Count tokens
-        token_count = azure_openai_service.count_tokens(message_data.content)
+        token_count = llm_service.count_tokens(message_data.content)
         
         db_message = MessageModel(
             chat_id=chat_id,
@@ -280,7 +280,7 @@ class ChatService:
         messages = []
         
         # Check if the model supports system messages (o1-mini and o1-preview do not)
-        model_name = azure_openai_service.deployment_name.lower()
+        model_name = getattr(llm_service, 'deployment_name', getattr(llm_service, 'llm', {}).model if hasattr(getattr(llm_service, 'llm', {}), 'model') else '').lower()
         supports_system_messages = not any(unsupported in model_name for unsupported in ['o1-mini', 'o1-preview', 'o1'])
         
         # Initialize hidden_context for o1-mini models
@@ -384,7 +384,7 @@ Do not end with opt-in questions or hedging closers. Do **not** say the followin
         
         # Generate response
         response_content = ""
-        async for chunk in azure_openai_service.generate_chat_completion(messages):
+        async for chunk in llm_service.generate_chat_completion(messages):
             response_content += chunk
             yield (chunk, None)
         

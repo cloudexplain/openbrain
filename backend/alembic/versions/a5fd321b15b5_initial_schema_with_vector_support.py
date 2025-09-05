@@ -8,6 +8,7 @@ Create Date: 2025-08-07 09:27:51.998811
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy import inspect
+from sqlalchemy.exc import NoSuchTableError
 
 
 # revision identifiers, used by Alembic.
@@ -24,8 +25,27 @@ def upgrade() -> None:
     inspector = inspect(connection)
     
     # Helper function to safely drop index
-    def safe_drop_index(index_name, table_name):
-        indexes = [idx['name'] for idx in inspector.get_indexes(table_name)]
+    def safe_drop_index(index_name: str, table_name: str) -> None:
+        """Sicheres Entfernen eines Index: nur wenn Tabelle und Index existieren."""
+        conn = op.get_bind()
+        inspector = inspect(conn)
+
+        # Prüfen, ob die Tabelle vorhanden ist (vermeidet NoSuchTableError)
+        try:
+            tables = inspector.get_table_names()
+        except Exception:
+            # Reflection schlug fehl — nichts tun
+            return
+
+        if table_name not in tables:
+            return
+
+        # Falls trotzdem eine Race-Condition auftritt, NoSuchTable abfangen
+        try:
+            indexes = [idx["name"] for idx in inspector.get_indexes(table_name)]
+        except NoSuchTableError:
+            return
+
         if index_name in indexes:
             op.drop_index(index_name, table_name=table_name)
     
