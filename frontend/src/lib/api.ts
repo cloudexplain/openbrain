@@ -28,6 +28,19 @@ export interface ChatListItem {
 	message_count: number;
 }
 
+export interface ChunkUsed {
+	chunk_id: string;
+	chunk_index: number;
+	page_number?: number;
+	page_index?: number;
+	text_position?: {
+		start?: number;
+		end?: number;
+	};
+	similarity: number;
+	content_preview: string;
+}
+
 export interface DocumentReference {
 	id: string;
 	title: string;
@@ -35,6 +48,7 @@ export interface DocumentReference {
 	chunk_count: number;
 	max_similarity: number;
 	avg_similarity: number;
+	chunks_used?: ChunkUsed[];
 	tags: any[];
 }
 

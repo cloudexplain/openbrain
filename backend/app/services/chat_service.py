@@ -257,8 +257,10 @@ class ChatService:
                 print(f"FILTERED BY DOCUMENTS: {document_titles}")
                 print(f"DOCUMENT IDS FOUND: {document_ids}")
         
-        # Build context from retrieved chunks
+        # Build context from retrieved chunks and prepare citation mapping
         context_parts = []
+        chunk_to_citation_mapping = {}  # Maps citation numbers to chunk details
+        
         if relevant_chunks:
             # Check if we're using fallback results (all chunks have distance > threshold)
             threshold_distance = 1.0 - rag_threshold
@@ -281,9 +283,20 @@ class ChatService:
                 else:
                     confidence = ""
                 
+                # Store citation mapping for later use
+                chunk_to_citation_mapping[i] = {
+                    'chunk_id': str(chunk.id),
+                    'document_id': str(chunk.document_id),
+                    'document_title': getattr(chunk, 'document_title', 'Unknown'),
+                    'chunk_index': chunk.chunk_index,
+                    'page_number': metadata.get('page_number'),
+                    'similarity': 1.0 - distance if isinstance(distance, float) else 0.0,
+                    'content_preview': chunk.content[:200] + '...' if len(chunk.content) > 200 else chunk.content
+                }
+                
                 context_parts.append(f"{i}. {source_info}{confidence}\n{chunk.content}\n")
             
-            context_parts.append("\n---\n\n")
+            context_parts.append("\n---\n\nIMPORTANT: When citing information from these sources, use the format [N] where N is the source number (1-{len(relevant_chunks)}). Each citation should be placed immediately after the claim it supports.\n\n")
         
         # Build conversation history for OpenAI
         messages = []
@@ -317,6 +330,18 @@ IMPORTANT: When writing mathematical formulas, equations, or any LaTeX expressio
   * Display: \\begin{equation} E = mc^2 \\end{equation}
   * Inline: The equation \\(E = mc^2\\) shows energy-mass equivalence
   * Simple inline: The famous $E = mc^2$ equation
+
+CITATION FORMATTING - VERY IMPORTANT:
+When you reference information from the provided knowledge context, use INLINE citations immediately after the relevant claim:
+- Format: "Specific claim or fact[N]" where N is the number of the source
+- Place citations directly after the claim they support, not at the end of sentences or paragraphs
+- Each citation [N] corresponds to the numbered source in the knowledge context
+- Examples:
+  * "Einstein developed the theory of relativity[1] which revolutionized physics[1]."
+  * "The study found that students performed better[2] when using active learning methods[2]."
+  * "Recent research shows[3] that climate change is accelerating[3]."
+- Use citations liberally - every factual claim from the knowledge base should be cited
+- Multiple facts from the same source should each have their own citation: "Fact A[1] and fact B[1]"
 
 Do not end with opt-in questions or hedging closers. Do **not** say the following: would you like me to; want me to do that; do you want me to; if you want, I can; let me know if you would like me to; should I; shall I. Ask at most one necessary clarifying question at the start, not the end. If the next step is obvious, do it."""
         
@@ -378,7 +403,8 @@ Do not end with opt-in questions or hedging closers. Do **not** say the followin
                         'title': getattr(chunk, 'document_title', 'Unknown'),
                         'source_type': getattr(chunk, 'source_type', 'unknown'),
                         'similarities': [],
-                        'chunk_count': 0
+                        'chunk_count': 0,
+                        'chunks_used': []  # NEW: Store individual chunk details
                     }
                 
                 if doc_id:
@@ -386,6 +412,23 @@ Do not end with opt-in questions or hedging closers. Do **not** say the followin
                     distance = getattr(chunk, 'search_distance', 0)
                     similarity = 1.0 - distance if distance is not None else 0.0
                     doc_stats[doc_id]['similarities'].append(similarity)
+                    
+                    # Parse chunk metadata to get page info
+                    chunk_meta = json.loads(chunk.chunk_metadata) if chunk.chunk_metadata else {}
+                    
+                    # Add chunk details for highlighting
+                    doc_stats[doc_id]['chunks_used'].append({
+                        'chunk_id': str(chunk.id),
+                        'chunk_index': chunk.chunk_index,
+                        'page_number': chunk_meta.get('page_number'),
+                        'page_index': chunk_meta.get('page_index'),
+                        'text_position': {
+                            'start': chunk_meta.get('chunk_start_char'),
+                            'end': chunk_meta.get('chunk_end_char')
+                        } if chunk_meta.get('chunk_start_char') is not None else None,
+                        'similarity': similarity,
+                        'content_preview': chunk.content[:200] + '...' if len(chunk.content) > 200 else chunk.content
+                    })
             
             # Convert to DocumentReference objects
             for doc_data in doc_stats.values():
@@ -397,6 +440,7 @@ Do not end with opt-in questions or hedging closers. Do **not** say the followin
                         'chunk_count': doc_data['chunk_count'],
                         'max_similarity': max(doc_data['similarities']),
                         'avg_similarity': sum(doc_data['similarities']) / len(doc_data['similarities']),
+                        'chunks_used': doc_data['chunks_used'],  # NEW: Include chunk details
                         'tags': []  # TODO: Add tags in future iteration
                     })
         
@@ -406,15 +450,64 @@ Do not end with opt-in questions or hedging closers. Do **not** say the followin
             response_content += chunk
             yield (chunk, None)
         
-        # Save assistant response
+        # Process citations in response content to create markdown links
+        processed_content = ChatService.process_citations_to_markdown(
+            response_content, 
+            chunk_to_citation_mapping
+        )
+        
+        # Save assistant response with processed markdown links
         assistant_msg = await ChatService.add_message(
             db,
             chat_id,
-            MessageCreate(content=response_content, role="assistant")
+            MessageCreate(content=processed_content, role="assistant")
         )
         
-        # Yield final message ID with document references
-        yield ("", assistant_msg.id, document_references)
+        # Yield final message ID with document references and citation mapping
+        yield ("", assistant_msg.id, document_references, chunk_to_citation_mapping)
+    
+    @staticmethod
+    def process_citations_to_markdown(content: str, citation_mapping: dict) -> str:
+        """Convert inline citations [1], [2] to markdown links using citation mapping"""
+        if not citation_mapping:
+            return content
+        
+        import re
+        
+        def replace_citation(match):
+            citation_num = int(match.group(1))
+            citation_data = citation_mapping.get(citation_num)
+            
+            if not citation_data:
+                # No mapping found, return original citation
+                return match.group(0)
+            
+            # Extract citation data
+            document_id = citation_data.get('document_id')
+            chunk_id = citation_data.get('chunk_id')
+            document_title = citation_data.get('document_title', 'Unknown Document')
+            page_number = citation_data.get('page_number')
+            
+            if not document_id or not chunk_id:
+                # Missing required data, return original citation
+                return match.group(0)
+            
+            # Build URL with highlighting parameters
+            url = f"/knowledge/{document_id}?chunks={chunk_id}"
+            # Don't include pages parameter - let the viewer show all pages and highlight specific chunk
+            
+            # Create markdown link: [original_citation](url "title")
+            title = f"{document_title}"
+            if page_number:
+                title += f" (Page {page_number})"
+            
+            return f"[{match.group(0)}]({url} \"{title}\")"
+        
+        # Pattern to match citations like [1], [2], etc.
+        citation_pattern = r'\[(\d+)\]'
+        processed_content = re.sub(citation_pattern, replace_citation, content)
+        
+        return processed_content
     
     @staticmethod
     async def get_or_create_chat(db: AsyncSession, chat_id: Optional[UUID] = None, title: str = "New Chat", user_id: UUID = None) -> Chat:

@@ -104,12 +104,16 @@ async def chat_with_ai(
                     rag_limit=request.rag_limit,
                     rag_threshold=request.rag_threshold
                 ):
-                    # Handle both 2-tuple and 3-tuple returns
+                    # Handle both 2-tuple, 3-tuple, and 4-tuple returns
                     if len(result) == 2:
                         chunk, message_id = result
                         document_references = None
-                    else:
+                        citation_mapping = None
+                    elif len(result) == 3:
                         chunk, message_id, document_references = result
+                        citation_mapping = None
+                    else:
+                        chunk, message_id, document_references, citation_mapping = result
                     
                     if chunk:
                         # Send content chunk
@@ -121,7 +125,7 @@ async def chat_with_ai(
                         yield f"data: {response.model_dump_json()}\n\n"
                     
                     if message_id:
-                        # Send completion message with document references
+                        # Send completion message with document references and citation mapping
                         response_data = {
                             "type": "done",
                             "message_id": str(message_id),
@@ -131,6 +135,10 @@ async def chat_with_ai(
                         # Add document references if available
                         if document_references:
                             response_data["document_references"] = document_references
+                        
+                        # Add citation mapping if available
+                        if citation_mapping:
+                            response_data["citation_mapping"] = citation_mapping
                         
                         yield f"data: {json.dumps(response_data)}\n\n"
                         break

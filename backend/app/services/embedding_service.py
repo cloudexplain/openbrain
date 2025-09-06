@@ -319,9 +319,6 @@ class EmbeddingService:
         if not documents:
             raise ValueError("Could not extract content from the document")
         
-        # Combine all document content
-        full_content = "\n\n".join([doc.page_content for doc in documents])
-        
         # Create document record
         document_id = uuid4()
         document = Document(
@@ -336,33 +333,63 @@ class EmbeddingService:
                 "file_path": file_path,
                 "original_filename": original_filename,
                 "file_type": file_type,
-                "file_size": Path(file_path).stat().st_size if Path(file_path).exists() else None
+                "file_size": Path(file_path).stat().st_size if Path(file_path).exists() else None,
+                "total_pages": len(documents) if file_type == "application/pdf" else None
             })
         )
         
         db.add(document)
         await db.flush()  # Get the document ID
         
-        # Chunk the content
-        chunks = self.text_splitter.split_text(full_content)
-        
-        # Process chunks and create embeddings
+        # Process each page/document separately to maintain page information
         chunk_objects = []
-        for i, chunk_content in enumerate(chunks):
-            # Generate embedding for this chunk
-            embedding = self.embed_text(chunk_content)
-            token_count = self.count_tokens(chunk_content)
+        global_chunk_index = 0
+        
+        for doc_idx, doc in enumerate(documents):
+            # Extract page number from metadata (PyPDFLoader provides this)
+            page_num = doc.metadata.get('page', doc_idx) if hasattr(doc, 'metadata') else doc_idx
             
-            # Create chunk object
-            chunk = DocumentChunk(
-                id=uuid4(),
-                document_id=document_id,
-                content=chunk_content,
-                chunk_index=i,
-                token_count=token_count,
-                embedding=embedding
-            )
-            chunk_objects.append(chunk)
+            # Split this page/document into chunks
+            page_chunks = self.text_splitter.split_text(doc.page_content)
+            
+            for local_chunk_idx, chunk_content in enumerate(page_chunks):
+                # Generate embedding for this chunk
+                embedding = self.embed_text(chunk_content)
+                token_count = self.count_tokens(chunk_content)
+                
+                # Enhanced metadata for PDF chunks
+                chunk_metadata = {
+                    "page_number": page_num + 1,  # Convert to 1-based indexing for display
+                    "page_index": page_num,  # Keep 0-based for processing
+                    "chunk_on_page": local_chunk_idx,
+                    "total_chunks_on_page": len(page_chunks)
+                }
+                
+                # For PDFs, try to get more specific location info
+                if file_type == "application/pdf":
+                    # Find position of chunk within the page
+                    page_text = doc.page_content
+                    chunk_start = page_text.find(chunk_content)
+                    chunk_end = chunk_start + len(chunk_content) if chunk_start != -1 else -1
+                    
+                    chunk_metadata.update({
+                        "chunk_start_char": chunk_start,
+                        "chunk_end_char": chunk_end,
+                        "page_char_count": len(page_text)
+                    })
+                
+                # Create chunk object
+                chunk = DocumentChunk(
+                    id=uuid4(),
+                    document_id=document_id,
+                    content=chunk_content,
+                    chunk_index=global_chunk_index,
+                    token_count=token_count,
+                    embedding=embedding,
+                    chunk_metadata=json.dumps(chunk_metadata)
+                )
+                chunk_objects.append(chunk)
+                global_chunk_index += 1
         
         # Add all chunks to database
         db.add_all(chunk_objects)

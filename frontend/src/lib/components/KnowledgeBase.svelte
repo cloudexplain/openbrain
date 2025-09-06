@@ -37,8 +37,14 @@
 	}
 
 	export let documents: Document[] = [];
+	export let highlightChunks: string[] = [];
+	export let highlightPages: number[] = [];
 	let selectedDocument: DocumentDetail | null = null;
 	let selectedDocumentChunks: DocumentWithChunks | null = null;
+	
+	// Chunk data for highlighting
+	let chunkData: any[] = [];
+	let highlightedContent = "";
 	let isLoading = false;
 	let searchQuery = "";
 	let documentLoading = false;
@@ -114,6 +120,9 @@
 				// Check if it's a PDF document and set view mode accordingly
 				isPdfDocument = selectedDocument.file_type === "application/pdf";
 				viewMode = isPdfDocument ? "pdf" : "raw";
+				
+				// Load chunk data for highlighting if needed
+				await loadChunkDataForHighlighting();
 			}
 			return;
 		}
@@ -141,6 +150,9 @@
 				// Check if it's a PDF document and set view mode accordingly
 				isPdfDocument = selectedDocument.file_type === "application/pdf";
 				viewMode = isPdfDocument ? "pdf" : "raw";
+				
+				// Load chunk data for highlighting if needed
+				await loadChunkDataForHighlighting();
 			}
 		} catch (error) {
 			console.error("Failed to load document:", error);
@@ -264,6 +276,84 @@
 		selectedDocument = null;
 		viewMode = "raw";
 		isPdfDocument = false;
+		chunkData = [];
+		highlightedContent = "";
+	}
+	
+	async function loadChunkDataForHighlighting() {
+		if (!selectedDocument || !highlightChunks.length) {
+			highlightedContent = selectedDocument?.content || "";
+			return;
+		}
+
+		try {
+			const chunkUrl = `/api/v1/documents/${selectedDocument.id}/chunks?chunk_ids=${highlightChunks.join(',')}`;
+			console.log('Loading chunk data for highlighting:', chunkUrl);
+
+			const response = await fetch(chunkUrl, {
+				headers: {
+					'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+					'Content-Type': 'application/json'
+				}
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				chunkData = data.chunks || [];
+				console.log('Loaded chunk data:', chunkData);
+				
+				// Apply highlights to raw content
+				if (selectedDocument.content) {
+					highlightedContent = highlightTextInRaw(selectedDocument.content, chunkData);
+				}
+			} else {
+				console.error('Failed to load chunk data:', response.status);
+				highlightedContent = selectedDocument?.content || "";
+			}
+		} catch (err) {
+			console.error('Error loading chunk data:', err);
+			highlightedContent = selectedDocument?.content || "";
+		}
+	}
+	
+	function highlightTextInRaw(content: string, chunks: any[]): string {
+		if (!chunks.length) return content;
+		
+		let highlightedText = content;
+		
+		// Sort chunks by content length (longest first) to avoid partial matches
+		const sortedChunks = [...chunks].sort((a, b) => {
+			const aText = a.content || a.chunk_text || a.text || '';
+			const bText = b.content || b.chunk_text || b.text || '';
+			return bText.length - aText.length;
+		});
+		
+		sortedChunks.forEach((chunk, index) => {
+			const chunkText = chunk.content || chunk.chunk_text || chunk.text || '';
+			if (!chunkText.trim()) return;
+			
+			// Use fuzzy matching - look for the chunk text (allowing for minor variations)
+			const normalizedChunkText = chunkText.toLowerCase().trim();
+			const normalizedContent = highlightedText.toLowerCase();
+			
+			// Find the chunk text in the content
+			const chunkIndex = normalizedContent.indexOf(normalizedChunkText);
+			
+			if (chunkIndex !== -1) {
+				// Get the actual text from the original content (preserving case)
+				const actualText = highlightedText.substring(chunkIndex, chunkIndex + chunkText.length);
+				
+				// Replace with highlighted version
+				const highlightedChunk = `<mark class="chunk-highlight" data-chunk-id="${chunk.id}" data-chunk-index="${index}">${actualText}</mark>`;
+				
+				highlightedText = 
+					highlightedText.substring(0, chunkIndex) + 
+					highlightedChunk + 
+					highlightedText.substring(chunkIndex + chunkText.length);
+			}
+		});
+		
+		return highlightedText;
 	}
 
 	function handleContentEdit(html: string, markdown: string) {
@@ -1014,8 +1104,12 @@
 								title="PDF Viewer"
 							/>
 						{:else if displayMode === "raw"}
-							<!-- Raw markdown display (read-only) -->
-							<pre class="w-full p-4 bg-gray-50 border border-gray-200 rounded-lg font-mono text-sm whitespace-pre-wrap overflow-x-auto">{selectedDocument?.content || ""}</pre>
+							<!-- Raw markdown display (read-only) with highlighting -->
+							{#if highlightChunks.length > 0}
+								<pre class="w-full p-4 bg-gray-50 border border-gray-200 rounded-lg font-mono text-sm whitespace-pre-wrap overflow-x-auto">{@html highlightedContent}</pre>
+							{:else}
+								<pre class="w-full p-4 bg-gray-50 border border-gray-200 rounded-lg font-mono text-sm whitespace-pre-wrap overflow-x-auto">{selectedDocument?.content || ""}</pre>
+							{/if}
 						{:else}
 							<!-- Formatted markdown content -->
 							<div
@@ -1415,5 +1509,14 @@
 		margin: 1rem 0;
 		border-left: 4px solid #3b82f6;
 		background-color: #eff6ff;
+	}
+	
+	/* Chunk highlighting styles */
+	:global(.chunk-highlight) {
+		background-color: rgba(255, 255, 0, 0.3);
+		padding: 2px 4px;
+		border-radius: 3px;
+		font-weight: inherit;
+		font-style: normal;
 	}
 </style>
