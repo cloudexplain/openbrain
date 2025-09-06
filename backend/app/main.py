@@ -1,7 +1,15 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+<<<<<<< HEAD
 from app.config import settings
 from app.api import chat, tags, document_tags
+=======
+from app.config import get_settings
+
+settings = get_settings()
+from app.api import chat, tags, document_tags, auth, documents
+from app.core.scheduler import session_cleanup_scheduler
+>>>>>>> c3de212 (Highlight quotations (#26))
 import logging
 
 # Configure logging
@@ -62,6 +70,13 @@ app.include_router(
     document_tags.router,
     prefix=settings.api_v1_str,
     tags=["document-tags"]
+)
+
+# Document management routes
+app.include_router(
+    documents.router,
+    prefix=settings.api_v1_str,
+    tags=["documents"]
 )
 
 

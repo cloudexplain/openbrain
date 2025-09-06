@@ -4,9 +4,9 @@
 	
 	const dispatch = createEventDispatcher();
 	
-	export let references: DocumentReference[] = [];
+	let { references = [] } = $props<{ references: DocumentReference[] }>();
 	
-	let isExpanded = false;
+	let isExpanded = $state(false);
 	
 	function getSourceIcon(sourceType: string) {
 		switch (sourceType) {
@@ -26,6 +26,8 @@
 	}
 	
 	function handleViewDocument(docId: string) {
+		console.log('📄 Document reference clicked:', docId);
+		console.log('📄 Dispatching viewDocument event with:', { id: docId });
 		dispatch('viewDocument', { id: docId });
 	}
 </script>

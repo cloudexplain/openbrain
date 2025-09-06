@@ -33,6 +33,10 @@ class Message(Base):
     token_count = Column(Integer, nullable=True)
     embedding = Column(Vector(1536), nullable=True)  # OpenAI text-embedding-ada-002 dimension
     
+    # Store citation mappings and document references as JSON
+    citation_mapping = Column(Text, nullable=True)  # JSON string for inline citation data
+    document_references = Column(Text, nullable=True)  # JSON string for document references
+    
     # Relationship to chat
     chat = relationship("Chat", back_populates="messages")
 

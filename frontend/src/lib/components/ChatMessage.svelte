@@ -3,17 +3,33 @@
 	import DocumentReferences from './DocumentReferences.svelte';
 	import MathRenderer from './MathRenderer.svelte';
 	import type { DocumentReference } from '$lib/api';
+	import { authService } from '$lib/stores/auth';
+	import { goto } from '$app/navigation';
 
-	export let message: {
-		id: string;
-		content: string;
-		role: 'user' | 'assistant';
-		timestamp: Date;
-	};
-	export let documentReferences: DocumentReference[] = [];
+	let { message, documentReferences = [] } = $props<{
+		message: {
+			id: string;
+			content: string;
+			role: 'user' | 'assistant';
+			timestamp: Date;
+		};
+		documentReferences?: DocumentReference[];
+	}>();
+
+	// Debug: Log document references
+	$effect(() => {
+		if (documentReferences.length > 0) {
+			console.log('📄 ChatMessage: Received document references for message', message.id, ':', documentReferences);
+		}
+	});
 
 	const dispatch = createEventDispatcher();
-	let showDeleteModal = false;
+	let showDeleteModal = $state(false);
+	
+	// Debug: Log when showDeleteModal changes
+	$effect(() => {
+		console.log('🗑️ showDeleteModal changed to:', showDeleteModal);
+	});
 	
 	// Check localStorage for "don't ask again" preference
 	function getSkipDeleteConfirmation(): boolean {
@@ -36,36 +52,93 @@
 	}
 
 	async function deleteMessage() {
+		console.log('🗑️ Delete message called for:', message.id);
 		try {
+			console.log('🗑️ Making DELETE request to:', `/api/v1/messages/${message.id}`);
 			const response = await fetch(`/api/v1/messages/${message.id}`, {
-				method: 'DELETE'
+				method: 'DELETE',
+				headers: {
+					'Content-Type': 'application/json',
+					...authService.getAuthHeaders()
+				}
 			});
 
+			console.log('🗑️ Delete response status:', response.status);
 			if (!response.ok) {
-				throw new Error(`Failed to delete message: ${response.status}`);
+				const errorText = await response.text();
+				console.error('🗑️ Delete failed, response body:', errorText);
+				throw new Error(`Failed to delete message: ${response.status} - ${errorText}`);
 			}
 
+			console.log('🗑️ Delete successful, dispatching messageDeleted event');
 			// Dispatch event to parent to remove message from UI
 			dispatch('messageDeleted', { messageId: message.id });
 			showDeleteModal = false;
 		} catch (error) {
-			console.error('Error deleting message:', error);
+			console.error('🗑️ Error deleting message:', error);
 			// You could add a notification here
 		}
 	}
 
 	function confirmDelete() {
+		console.log('🗑️ Confirm delete clicked for message:', message.id);
 		// Check if user has opted to skip confirmation
-		if (getSkipDeleteConfirmation()) {
+		const skipConfirmation = getSkipDeleteConfirmation();
+		console.log('🗑️ Skip confirmation setting:', skipConfirmation);
+		if (skipConfirmation) {
+			console.log('🗑️ Skip confirmation is enabled, deleting immediately');
 			deleteMessage();
 		} else {
+			console.log('🗑️ Showing delete confirmation modal');
 			showDeleteModal = true;
+			console.log('🗑️ showDeleteModal is now:', showDeleteModal);
 		}
 	}
 	
 	function deleteWithoutAsking() {
 		setSkipDeleteConfirmation(true);
 		deleteMessage();
+	}
+
+	function handleViewDocument(event: CustomEvent<{id: string}>) {
+		const documentId = event.detail.id;
+		console.log('📄 ChatMessage: handleViewDocument called with documentId:', documentId);
+		
+		// Find the document reference to get chunk details
+		const docRef = documentReferences.find(ref => ref.id === documentId);
+		console.log('📄 ChatMessage: Found document reference:', docRef);
+		
+		// Build URL with highlighting parameters
+		let url = `/knowledge/${documentId}`;
+		const params = new URLSearchParams();
+		
+		// Add message ID for context
+		params.set('messageId', message.id);
+		
+		// Add specific chunk info if available
+		if (docRef?.chunks_used) {
+			const chunkIds = docRef.chunks_used.map(chunk => chunk.chunk_id).join(',');
+			const pages = [...new Set(docRef.chunks_used
+				.map(chunk => chunk.page_number)
+				.filter(Boolean)
+				.sort((a, b) => a - b)
+			)].join(',');
+			
+			console.log('📄 ChatMessage: Extracted chunk IDs:', chunkIds);
+			console.log('📄 ChatMessage: Extracted pages:', pages);
+			
+			if (chunkIds) params.set('chunks', chunkIds);
+			if (pages) params.set('pages', pages);
+		}
+		
+		if (params.toString()) {
+			url += '?' + params.toString();
+		}
+		
+		console.log('📄 ChatMessage: Navigating to URL:', url);
+		
+		// Navigate to the knowledge page using SvelteKit navigation
+		goto(url);
 	}
 </script>
 
@@ -106,13 +179,18 @@
 							prose-pre:bg-gray-50 prose-pre:border prose-pre:border-gray-200 prose-pre:rounded-lg prose-pre:p-4 prose-pre:overflow-x-auto
 							prose-blockquote:border-l-blue-500 prose-blockquote:bg-blue-50/50 prose-blockquote:p-4 prose-blockquote:rounded-r-lg
 							prose-ul:list-disc prose-ol:list-decimal prose-li:my-1
-							prose-table:border-collapse prose-th:border prose-th:border-gray-300 prose-th:p-2 prose-th:bg-gray-50 prose-td:border prose-td:border-gray-300 prose-td:p-2">
+							prose-table:border-collapse prose-th:border prose-th:border-gray-300 prose-th:p-2 prose-th:bg-gray-50 prose-td:border prose-td:border-gray-300 prose-td:p-2
+							citation-links">
+					<!-- All messages now use standard markdown rendering -->
 					<MathRenderer content={message.content} />
 				</div>
 				
 				<!-- Document References (for assistant messages) -->
 				{#if message.role === 'assistant' && documentReferences && documentReferences.length > 0}
-					<DocumentReferences references={documentReferences} />
+					<DocumentReferences 
+						references={documentReferences} 
+						on:viewDocument={handleViewDocument}
+					/>
 				{/if}
 				
 				<!-- Action Buttons -->
@@ -125,7 +203,7 @@
 							Copy
 						</button>
 					{/if}
-					<button on:click={confirmDelete} class="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors duration-150">
+					<button on:click={() => {console.log('🗑️ Delete button clicked'); confirmDelete();}} class="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors duration-150">
 						<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
 						</svg>
@@ -139,7 +217,8 @@
 
 <!-- Delete Confirmation Modal -->
 {#if showDeleteModal}
-	<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+	{console.log('🗑️ MODAL IS RENDERING! showDeleteModal =', showDeleteModal)}
+	<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" on:click|self={() => {console.log('🗑️ Modal backdrop clicked'); showDeleteModal = false;}}>
 		<div class="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
 			<div class="p-6">
 				<div class="flex items-center justify-between mb-4">
@@ -191,7 +270,7 @@
 							Cancel
 						</button>
 						<button
-							on:click={deleteMessage}
+							on:click={() => {console.log('🗑️ Modal delete button clicked'); deleteMessage();}}
 							class="px-4 py-2 text-sm bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors font-medium"
 						>
 							Delete Message
@@ -202,3 +281,22 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	/* Enhanced styling for citation links */
+	:global(.citation-links a[href*="/knowledge/"][href*="chunks="]) {
+		background: rgba(37, 99, 235, 0.1);
+		padding: 1px 3px;
+		border-radius: 2px;
+		font-weight: 500;
+		border: 1px solid rgba(37, 99, 235, 0.2);
+		transition: all 0.2s ease;
+		text-decoration: none;
+	}
+	
+	:global(.citation-links a[href*="/knowledge/"][href*="chunks="]:hover) {
+		background: rgba(37, 99, 235, 0.2);
+		border-color: rgba(37, 99, 235, 0.4);
+		text-decoration: underline;
+	}
+</style>
