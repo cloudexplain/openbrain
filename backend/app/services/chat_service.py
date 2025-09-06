@@ -456,7 +456,11 @@ Do not end with opt-in questions or hedging closers. Do **not** say the followin
         
         # Yield final message ID with document references and citation mapping
         yield ("", assistant_msg.id, document_references, chunk_to_citation_mapping)
+<<<<<<< HEAD
 
+=======
+    
+>>>>>>> c3de212 (Highlight quotations (#26))
     @staticmethod
     def process_citations_to_markdown(content: str, citation_mapping: dict) -> str:
         """Convert inline citations [1], [2] to markdown links using citation mapping"""
