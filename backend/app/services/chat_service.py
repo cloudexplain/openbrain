@@ -454,8 +454,51 @@ Do not end with opt-in questions or hedging closers. Do **not** say the followin
             MessageCreate(content=processed_content, role="assistant")
         )
         
-        # Yield final message ID with document references
-        yield ("", assistant_msg.id, document_references)
+        # Yield final message ID with document references and citation mapping
+        yield ("", assistant_msg.id, document_references, chunk_to_citation_mapping)
+    
+    @staticmethod
+    def process_citations_to_markdown(content: str, citation_mapping: dict) -> str:
+        """Convert inline citations [1], [2] to markdown links using citation mapping"""
+        if not citation_mapping:
+            return content
+        
+        import re
+        
+        def replace_citation(match):
+            citation_num = int(match.group(1))
+            citation_data = citation_mapping.get(citation_num)
+            
+            if not citation_data:
+                # No mapping found, return original citation
+                return match.group(0)
+            
+            # Extract citation data
+            document_id = citation_data.get('document_id')
+            chunk_id = citation_data.get('chunk_id')
+            document_title = citation_data.get('document_title', 'Unknown Document')
+            page_number = citation_data.get('page_number')
+            
+            if not document_id or not chunk_id:
+                # Missing required data, return original citation
+                return match.group(0)
+            
+            # Build URL with highlighting parameters
+            url = f"/knowledge/{document_id}?chunks={chunk_id}"
+            # Don't include pages parameter - let the viewer show all pages and highlight specific chunk
+            
+            # Create markdown link: [original_citation](url "title")
+            title = f"{document_title}"
+            if page_number:
+                title += f" (Page {page_number})"
+            
+            return f"[{match.group(0)}]({url} \"{title}\")"
+        
+        # Pattern to match citations like [1], [2], etc.
+        citation_pattern = r'\[(\d+)\]'
+        processed_content = re.sub(citation_pattern, replace_citation, content)
+        
+        return processed_content
     
     @staticmethod
     async def get_or_create_chat(db: AsyncSession, chat_id: Optional[UUID] = None, title: str = "New Chat") -> Chat:
