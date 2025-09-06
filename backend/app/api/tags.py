@@ -7,6 +7,8 @@ from uuid import UUID
 
 from app.models.database import get_db
 from app.models.chat import Tag, Document, DocumentTag
+from app.models.user import User
+from app.core.deps import get_current_user
 from app.schemas.tag import (
     TagCreate, TagUpdate, Tag as TagSchema, 
     TagList, DocumentTagAdd, DocumentTagResponse
@@ -20,21 +22,24 @@ async def get_tags(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all tags with optional search and pagination."""
+    """Get all tags for the current user with optional search and pagination."""
     query = select(
         Tag,
         func.count(DocumentTag.document_id).label('document_count')
     ).outerjoin(
         DocumentTag, Tag.id == DocumentTag.tag_id
+    ).where(
+        Tag.user_id == current_user.id
     ).group_by(Tag.id)
     
     if search:
         query = query.where(Tag.name.ilike(f"%{search}%"))
     
     # Get total count
-    count_query = select(func.count()).select_from(Tag)
+    count_query = select(func.count()).select_from(Tag).where(Tag.user_id == current_user.id)
     if search:
         count_query = count_query.where(Tag.name.ilike(f"%{search}%"))
     
@@ -58,17 +63,23 @@ async def get_tags(
 @router.post("", response_model=TagSchema)
 async def create_tag(
     tag_create: TagCreate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Create a new tag."""
-    # Check if tag with same name exists
+    """Create a new tag for the current user."""
+    # Check if tag with same name exists for this user
     existing = await db.execute(
-        select(Tag).where(func.lower(Tag.name) == func.lower(tag_create.name))
+        select(Tag).where(
+            and_(
+                func.lower(Tag.name) == func.lower(tag_create.name),
+                Tag.user_id == current_user.id
+            )
+        )
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Tag with this name already exists")
     
-    tag = Tag(**tag_create.model_dump())
+    tag = Tag(**tag_create.model_dump(), user_id=current_user.id)
     db.add(tag)
     await db.commit()
     await db.refresh(tag)
@@ -83,16 +94,20 @@ async def create_tag(
 @router.get("/{tag_id}", response_model=TagSchema)
 async def get_tag(
     tag_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get a specific tag by ID."""
+    """Get a specific tag by ID for the current user."""
     query = select(
         Tag,
         func.count(DocumentTag.document_id).label('document_count')
     ).outerjoin(
         DocumentTag, Tag.id == DocumentTag.tag_id
     ).where(
-        Tag.id == tag_id
+        and_(
+            Tag.id == tag_id,
+            Tag.user_id == current_user.id
+        )
     ).group_by(Tag.id)
     
     result = await db.execute(query)
@@ -112,21 +127,28 @@ async def get_tag(
 async def update_tag(
     tag_id: UUID,
     tag_update: TagUpdate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Update a tag."""
-    result = await db.execute(select(Tag).where(Tag.id == tag_id))
+    """Update a tag for the current user."""
+    result = await db.execute(select(Tag).where(
+        and_(
+            Tag.id == tag_id,
+            Tag.user_id == current_user.id
+        )
+    ))
     tag = result.scalar_one_or_none()
     
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
     
-    # Check if new name conflicts with existing tag
+    # Check if new name conflicts with existing tag for this user
     if tag_update.name and tag_update.name != tag.name:
         existing = await db.execute(
             select(Tag).where(
                 and_(
                     func.lower(Tag.name) == func.lower(tag_update.name),
+                    Tag.user_id == current_user.id,
                     Tag.id != tag_id
                 )
             )
@@ -156,10 +178,16 @@ async def update_tag(
 @router.delete("/{tag_id}")
 async def delete_tag(
     tag_id: UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete a tag. This will also remove all document associations."""
-    result = await db.execute(select(Tag).where(Tag.id == tag_id))
+    """Delete a tag for the current user. This will also remove all document associations."""
+    result = await db.execute(select(Tag).where(
+        and_(
+            Tag.id == tag_id,
+            Tag.user_id == current_user.id
+        )
+    ))
     tag = result.scalar_one_or_none()
     
     if not tag:
@@ -176,21 +204,30 @@ async def get_tag_documents(
     tag_id: UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all documents with a specific tag."""
-    # Check tag exists
-    tag_result = await db.execute(select(Tag).where(Tag.id == tag_id))
+    """Get all documents with a specific tag for the current user."""
+    # Check tag exists and belongs to current user
+    tag_result = await db.execute(select(Tag).where(
+        and_(
+            Tag.id == tag_id,
+            Tag.user_id == current_user.id
+        )
+    ))
     tag = tag_result.scalar_one_or_none()
     
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
     
-    # Get documents with this tag
+    # Get documents with this tag (ensure documents also belong to the user)
     query = select(Document).join(
         DocumentTag, Document.id == DocumentTag.document_id
     ).where(
-        DocumentTag.tag_id == tag_id
+        and_(
+            DocumentTag.tag_id == tag_id,
+            Document.user_id == current_user.id
+        )
     ).options(
         selectinload(Document.tags)
     ).offset(skip).limit(limit)
