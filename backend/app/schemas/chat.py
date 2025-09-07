@@ -35,6 +35,7 @@ class ChatCreate(ChatBase):
 
 class ChatUpdate(BaseModel):
     title: Optional[str] = None
+    messages: Optional[List[dict]] = None  # Using dict to accept role and content
 
 
 class Chat(ChatBase):

@@ -161,6 +161,64 @@ class ChatService:
         ]
     
     @staticmethod
+    async def update_chat(db: AsyncSession, chat_id: UUID, chat_data, user_id: UUID) -> Optional[Chat]:
+        """Update a chat's title and/or messages for a specific user"""
+        # Get the chat
+        result = await db.execute(
+            select(ChatModel)
+            .options(selectinload(ChatModel.messages))
+            .where(ChatModel.id == chat_id, ChatModel.user_id == user_id)
+        )
+        chat = result.scalar_one_or_none()
+        
+        if not chat:
+            return None
+        
+        # Update title if provided
+        if chat_data.title is not None:
+            chat.title = chat_data.title
+        
+        # Update messages if provided
+        if chat_data.messages is not None:
+            # Delete existing messages
+            await db.execute(
+                text("DELETE FROM messages WHERE chat_id = :chat_id"),
+                {"chat_id": str(chat_id)}
+            )
+            
+            # Add new messages
+            for idx, msg_data in enumerate(chat_data.messages):
+                message = MessageModel(
+                    chat_id=chat_id,
+                    content=msg_data.get('content', ''),
+                    role=msg_data.get('role', 'user'),
+                    token_count=len(msg_data.get('content', '').split())  # Simple token count
+                )
+                db.add(message)
+        
+        await db.commit()
+        await db.refresh(chat)
+        
+        # Return the updated chat with messages
+        return Chat(
+            id=chat.id,
+            title=chat.title,
+            created_at=chat.created_at,
+            updated_at=chat.updated_at,
+            messages=[
+                Message(
+                    id=msg.id,
+                    chat_id=msg.chat_id,
+                    content=ChatService.strip_system_context_tags(msg.content),
+                    role=msg.role,
+                    created_at=msg.created_at,
+                    token_count=msg.token_count
+                )
+                for msg in chat.messages
+            ]
+        )
+    
+    @staticmethod
     async def delete_chat(db: AsyncSession, chat_id: UUID, user_id: UUID) -> bool:
         """Delete a chat and all its messages for a specific user"""
         result = await db.execute(

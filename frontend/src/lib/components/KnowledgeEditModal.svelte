@@ -2,9 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import type { Message } from '$lib/api';
 	
-	export let messages: Message[] = [];
-	export let chatTitle: string = '';
-	export let chatId: string = '';
+	let { messages = [], chatTitle = '', chatId = '' } = $props();
 	
 	const dispatch = createEventDispatcher();
 	
@@ -16,17 +14,24 @@
 		isEditing: boolean;
 	}
 	
-	let editableMessages: EditableMessage[] = messages.map(msg => ({
+	let editableMessages = $state<EditableMessage[]>(messages.map(msg => ({
 		...msg,
 		originalContent: msg.content,
 		isEditing: false
-	}));
+	})));
 	
-	let documentTitle = chatTitle;
-	let documentContent = '';
-	let editMode: 'messages' | 'document' = 'messages';
-	let hoveredMessageIndex: number | null = null;
-	let isGeneratingSummary = false;
+	let documentTitle = $state(chatTitle);
+	let documentContent = $state('');
+	let editMode = $state<'messages' | 'document'>('messages');
+	let hoveredMessageIndex = $state<number | null>(null);
+	let isGeneratingSummary = $state(false);
+	
+	// Initialize document content on mount
+	$effect(() => {
+		if (editableMessages.length > 0 && !documentContent) {
+			updateDocumentContent();
+		}
+	});
 	
 	function focusAndSelect(node: HTMLDivElement) {
 		node.focus();
@@ -60,6 +65,8 @@
 	function handleEditableKeydown(event: KeyboardEvent, index: number) {
 		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
 			event.preventDefault();
+			const target = event.currentTarget as HTMLDivElement;
+			editableMessages[index].content = target.textContent || '';
 			finishEditingMessage(index);
 		} else if (event.key === 'Escape') {
 			event.preventDefault();
@@ -70,9 +77,10 @@
 		}
 	}
 	
-	function handleEditableInput(event: Event, index: number) {
+	function handleEditableBlur(event: FocusEvent, index: number) {
 		const target = event.currentTarget as HTMLDivElement;
 		editableMessages[index].content = target.textContent || '';
+		finishEditingMessage(index);
 	}
 	
 	function updateMessageContent(index: number, newContent: string) {
@@ -111,6 +119,18 @@
 		});
 	}
 	
+	function handleOverwrite() {
+		const editedMessages = editableMessages.map(msg => ({
+			role: msg.role,
+			content: msg.content
+		}));
+		
+		dispatch('overwrite', {
+			messages: editedMessages,
+			title: documentTitle
+		});
+	}
+	
 	function handleCancel() {
 		dispatch('cancel');
 	}
@@ -144,8 +164,6 @@
 		}
 	}
 	
-	// Initialize document content
-	updateDocumentContent();
 </script>
 
 <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -236,8 +254,7 @@
 										<div>
 											<div
 												contenteditable="true"
-												on:blur={() => finishEditingMessage(index)}
-												on:input={(e) => handleEditableInput(e, index)}
+												on:blur={(e) => handleEditableBlur(e, index)}
 												on:keydown={(e) => handleEditableKeydown(e, index)}
 												class="whitespace-pre-wrap focus:outline-none"
 												role="textbox"
@@ -321,8 +338,16 @@
 					Cancel
 				</button>
 				<button
+					on:click={handleOverwrite}
+					class="px-5 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors font-medium"
+					title="Replace the current chat with edited messages"
+				>
+					Save and Overwrite Chat
+				</button>
+				<button
 					on:click={handleSave}
 					class="px-5 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium"
+					title="Save as a new document in knowledge base"
 				>
 					Save to Knowledge Base
 				</button>

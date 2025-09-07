@@ -251,11 +251,33 @@
 
 	async function handleSaveToKnowledge() {
 		if (!chatId) return;
+		showKnowledgeModal = true;
+	}
 
+	async function handleSaveEditedKnowledge(event: CustomEvent) {
+		const { title, content, mode } = event.detail;
+		
 		try {
+			// Prepare the request body based on the mode
+			let requestBody: any = {
+				title: title
+			};
+			
+			if (mode === 'document') {
+				// If in document mode, send the content as a single string
+				requestBody.content = content;
+			} else {
+				// If in messages mode, send the edited messages array
+				requestBody.messages = content;
+			}
+			
 			const response = await fetch(`/api/v1/chats/${chatId}/save-to-knowledge`, {
 				method: "POST",
-				headers: authService.getAuthHeaders(),
+				headers: {
+					"Content-Type": "application/json",
+					...authService.getAuthHeaders(),
+				},
+				body: JSON.stringify(requestBody)
 			});
 
 			if (!response.ok) {
@@ -263,19 +285,52 @@
 			}
 
 			const result = await response.json();
-			showNotification(`Saved "${result.title}" to knowledge base`, "success");
+			showKnowledgeModal = false;
+			showNotification(`Saved "${title}" to knowledge base`, "success");
 		} catch (error) {
 			console.error("Error saving to knowledge:", error);
 			showNotification("Failed to save to knowledge base", "error");
 		}
 	}
 
-	function handleSaveEditedKnowledge(event: CustomEvent) {
-		showKnowledgeModal = false;
-		const { title } = event.detail;
-		showNotification(`Saved "${title}" to knowledge base`, "success");
-	}
+	async function handleOverwriteChat(event: CustomEvent) {
+		const { messages: editedMessages, title } = event.detail;
+		
+		try {
+			// Update the chat with edited messages
+			const response = await fetch(`/api/v1/chats/${chatId}`, {
+				method: "PUT",
+				headers: {
+					"Content-Type": "application/json",
+					...authService.getAuthHeaders(),
+				},
+				body: JSON.stringify({
+					title: title,
+					messages: editedMessages
+				})
+			});
 
+			if (!response.ok) {
+				throw new Error(`HTTP ${response.status}`);
+			}
+
+			// Update local state with edited messages
+			messages = editedMessages.map((msg: any, index: number) => ({
+				...msg,
+				id: msg.id || `edited-${index}`,
+				timestamp: msg.timestamp || new Date().toISOString(),
+				chatId: chatId
+			}));
+			
+			currentChatTitle = title;
+			showKnowledgeModal = false;
+			showNotification("Chat updated successfully", "success");
+		} catch (error) {
+			console.error("Error updating chat:", error);
+			showNotification("Failed to update chat", "error");
+		}
+	}
+	
 	function handleCancelKnowledgeEdit() {
 		showKnowledgeModal = false;
 	}
@@ -667,6 +722,7 @@
 		chatTitle={currentChatTitle}
 		chatId={chatId || ''}
 		on:save={handleSaveEditedKnowledge}
+		on:overwrite={handleOverwriteChat}
 		on:cancel={handleCancelKnowledgeEdit}
 	/>
 {/if}

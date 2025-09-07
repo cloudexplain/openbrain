@@ -193,6 +193,7 @@
 				position: absolute;
 				top: 0;
 				left: 0;
+				z-index: 1;
 			`;
 
 			pageContainer.appendChild(canvas);
@@ -207,6 +208,7 @@
 				width: 100%;
 				height: 100%;
 				pointer-events: none;
+				z-index: 2;
 			`;
 			pageContainer.appendChild(overlay);
 
@@ -237,8 +239,21 @@
 			};
 
 			console.log(`🔍 PDFViewer: Starting render of page ${pageNum} content...`);
-			await page.render(renderContext).promise;
-			console.log(`🔍 PDFViewer: Completed rendering page ${pageNum} content`);
+			console.log(`🔍 PDFViewer: Canvas context:`, context ? 'exists' : 'null');
+			console.log(`🔍 PDFViewer: Canvas dimensions:`, canvas.width, 'x', canvas.height);
+			
+			try {
+				// Use setTimeout to allow the browser to properly handle each render
+				await new Promise((resolve) => {
+					page.render(renderContext).promise.then(() => {
+						console.log(`🔍 PDFViewer: Completed rendering page ${pageNum} content`);
+						// Small delay to ensure browser processes the render
+						setTimeout(resolve, 10);
+					});
+				});
+			} catch (renderError) {
+				console.error(`🔍 PDFViewer: Error rendering page ${pageNum}:`, renderError);
+			}
 
 			// Extract text content for highlighting
 			const textContent = await page.getTextContent();

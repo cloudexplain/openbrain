@@ -164,7 +164,8 @@
 
 	// Reactive statements using Svelte 5 syntax
 	let isPublicRoute = $derived(publicRoutes.includes($page.url.pathname));
-	let showFullLayout = $derived($authStore.isAuthenticated && !isPublicRoute);
+	// Show full layout unless we're on a public route (login, signup, etc.)
+	let showFullLayout = $derived(!isPublicRoute);
 
 	// Effect to update data from server when it changes
 	$effect(() => {
@@ -210,7 +211,7 @@
 			<Sidebar
 				{chats}
 				{currentChatId}
-				minimized={sidebarMinimized}
+				isMinimized={sidebarMinimized}
 				on:newChat={handleNewChat}
 				on:selectChat={handleSelectChat}
 				on:deleteChat={handleDeleteChat}

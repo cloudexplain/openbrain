@@ -64,6 +64,20 @@ async def get_chat(
     return chat
 
 
+@router.put("/chats/{chat_id}")
+async def update_chat(
+    chat_id: UUID,
+    chat_data: ChatUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update a chat's title and/or messages for current user"""
+    updated_chat = await ChatService.update_chat(db, chat_id, chat_data, current_user.id)
+    if not updated_chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return updated_chat
+
+
 @router.delete("/chats/{chat_id}")
 async def delete_chat(
     chat_id: UUID,
