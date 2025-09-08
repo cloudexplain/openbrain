@@ -27,12 +27,20 @@ class LangchainOllamaService:
 
     def generate(self, prompt: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Send a generation request to Ollama.
+        Send a generation request to Ollama using the chat completions endpoint.
         For streaming responses (multiple JSON lines) all 'response' parts are concatenated
         and returned in the 'response' field.
         """
-        url = f"{self.base_url}/api/generate"
-        payload: Dict[str, Any] = {"model": self.model, "prompt": prompt}
+        url = f"{self.base_url}/v1/chat/completions"
+        
+        # Convert simple prompt to messages format if it's a string
+        messages = [{"role": "user", "content": prompt}]
+        
+        payload: Dict[str, Any] = {
+            "model": self.model, 
+            "messages": messages,
+            "stream": False
+        }
         if params:
             payload.update(params)
 
@@ -40,37 +48,60 @@ class LangchainOllamaService:
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError:
-            logger.error("Ollama generate returned status %s: %s", resp.status_code, resp.text)
+            logger.error("Ollama chat completions returned status %s: %s", resp.status_code, resp.text)
             raise
 
-        # try full JSON, otherwise parse line-by-line and concat 'response'
+        # Parse OpenAI-compatible response format
         try:
-            return resp.json()
+            data = resp.json()
+            if isinstance(data, dict) and "choices" in data:
+                # OpenAI-compatible format
+                if data["choices"] and "message" in data["choices"][0]:
+                    content = data["choices"][0]["message"]["content"]
+                    return {"response": content}
+            return data
         except Exception:
             text = resp.text or ""
-            parsed: List[Dict[str, Any]] = []
-            for line in text.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                    if isinstance(obj, dict):
-                        parsed.append(obj)
-                except Exception:
-                    continue
+            logger.warning("Ollama chat completions: could not parse JSON, returning raw text")
+            return {"response": text}
 
-            if parsed:
-                combined = "".join(o.get("response", "") for o in parsed if isinstance(o.get("response", ""), str))
-                base = dict(parsed[-1])
-                base["response"] = combined
-                return base
+    def generate_chat_completion(self, messages: List[Dict[str, str]], params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Send a chat completion request to Ollama with proper messages format.
+        """
+        url = f"{self.base_url}/v1/chat/completions"
+        
+        payload: Dict[str, Any] = {
+            "model": self.model, 
+            "messages": messages,
+            "stream": False
+        }
+        if params:
+            payload.update(params)
 
-            logger.warning("Ollama generate: could not parse JSON, returning raw text")
-            return {"raw": text}
+        resp = self._client.post(url, json=payload)
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError:
+            logger.error("Ollama chat completions returned status %s: %s", resp.status_code, resp.text)
+            raise
+
+        # Parse OpenAI-compatible response format
+        try:
+            data = resp.json()
+            if isinstance(data, dict) and "choices" in data:
+                # OpenAI-compatible format
+                if data["choices"] and "message" in data["choices"][0]:
+                    content = data["choices"][0]["message"]["content"]
+                    return {"response": content}
+            return data
+        except Exception:
+            text = resp.text or ""
+            logger.warning("Ollama chat completions: could not parse JSON, returning raw text")
+            return {"response": text}
 
     def embed(self, text: str) -> List[float]:
-        url = f"{self.base_url}/api/embeddings"
+        url = f"{self.base_url}/v1/embeddings"
         last_exc: Optional[Exception] = None
         for model_choice in (self.embedding_model, self.model):
             payload = {"model": model_choice, "input": text}
@@ -108,6 +139,16 @@ class LangchainOllamaService:
 
         logger.error("Embedding requests all failed: %s", last_exc)
         raise last_exc or RuntimeError("Embedding request failed")
+
+    def count_tokens(self, text: str) -> int:
+        """
+        Simple token counting based on rough estimation.
+        For more accurate counting, you could use a proper tokenizer.
+        """
+        # Simple approximation: ~1 token per 4 characters for English text
+        # This is a rough estimation, for production you might want to use
+        # an actual tokenizer like tiktoken or the model's specific tokenizer
+        return max(1, len(text) // 4)
 
     def close(self):
         try:
