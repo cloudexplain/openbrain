@@ -1,6 +1,6 @@
 # SecondBrain - Collaborative AI Assistant with RAG
 
-A modern, production-ready chat interface for AI assistance with document ingestion and RAG (Retrieval Augmented Generation) capabilities. Built with SvelteKit frontend and FastAPI backend using Microsoft Azure OpenAI.
+A modern, production-ready chat interface for AI assistance with document ingestion and RAG (Retrieval Augmented Generation) capabilities. Built with SvelteKit frontend and FastAPI backend supporting both **Azure OpenAI** and **local Ollama models**.
 
 ## 🚀 Current Status
 
@@ -92,9 +92,9 @@ secondbrain/
 ### Prerequisites
 
 - **Docker & Docker Compose** (recommended)
-- **Azure OpenAI API access** with:
-  - GPT-4 deployment (for chat completions)
-  - text-embedding-ada-002 deployment (for embeddings)
+- **Choose your LLM Provider:**
+  - **Option A - Ollama (Local)**: Download and install [Ollama](https://ollama.com/) with models
+  - **Option B - Azure OpenAI**: API access with GPT-4 and text-embedding-ada-002 deployments
 
 ### Option 1: Docker Compose (Recommended)
 
@@ -120,7 +120,7 @@ docker-compose -f docker-compose.dev.yml up
 ```bash
 # Copy and configure environment variables
 cp .env.example .env
-# Edit .env with your Azure OpenAI credentials
+# Edit .env with your LLM provider settings (see configuration section below)
 
 # Start in production mode
 ./prod.sh --build
@@ -150,7 +150,7 @@ pip install -r requirements.txt
 
 # Copy environment template
 cp .env.example .env
-# Edit .env with your Azure OpenAI credentials
+# Edit .env with your LLM provider settings (see configuration section)
 
 # Start the development server
 python run.py
@@ -189,7 +189,38 @@ docker run -d \
 4. Test RAG-powered responses with your uploaded content
 5. Save conversations to knowledge base for future reference
 
-### 4. Try the Tag System
+### 4. Test Your LLM Provider
+
+**For Ollama:**
+```bash
+# Test if Ollama is running
+curl http://localhost:11434/api/tags
+
+# Test chat completion
+curl -X POST http://localhost:11434/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "smollm2:135m",
+    "messages": [{"role": "user", "content": "Hello, are you working?"}],
+    "stream": false
+  }'
+
+# Test embeddings
+curl -X POST http://localhost:11434/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "mxbai-embed-large",
+    "input": "Hello world"
+  }'
+```
+
+**For Both Providers:**
+1. Start the application and navigate to the chat interface
+2. Send a test message: "Hello, can you help me?"
+3. Upload a document to test RAG functionality
+4. Try tag-based searches using hashtags
+
+### 5. Try the Tag System
 
 1. **Create Tags**: Click the orange "Tags" button in sidebar → Create tags like "Python", "Machine Learning", "DevOps"
 2. **Tag Documents**: Open knowledge base → Select a document → Add tags using the tag selector
@@ -302,27 +333,106 @@ For more detailed deployment information, see [`DEPLOYMENT.md`](./DEPLOYMENT.md)
 
 ## ⚙️ Configuration
 
-### Backend Environment Variables
+### LLM Provider Setup
 
-Complete `.env` configuration:
+Choose between **Ollama (Local)** or **Azure OpenAI (Cloud)**:
 
+#### Option A: Ollama Configuration (Recommended for Local Development)
+
+**1. Install Ollama:**
+```bash
+# Download and install from https://ollama.com/
+# Or use package manager:
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+**2. Pull Required Models:**
+```bash
+# Chat model (choose one based on your hardware):
+ollama pull smollm2:135m        # Lightweight (135M parameters)
+ollama pull llama3.2:3b         # Medium (3B parameters)
+ollama pull llama3.2:8b         # Larger (8B parameters)
+
+# Embedding model:
+ollama pull mxbai-embed-large   # High-quality embeddings
+# OR
+ollama pull nomic-embed-text    # Alternative embedding model
+```
+
+**3. Configure .env for Ollama:**
 ```env
-# Azure OpenAI Configuration (Required)
+# LLM Provider Selection
+LLM_PROVIDER=ollama
+
+# Ollama Configuration
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=smollm2:135m
+OLLAMA_EMBEDDING_MODEL=mxbai-embed-large
+
+# Database Configuration
+DATABASE_URL=postgresql+asyncpg://secondbrain:password@postgres:5432/secondbrain
+POSTGRES_USER=secondbrain
+POSTGRES_PASSWORD=password
+POSTGRES_DB=secondbrain
+
+# CORS Configuration
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:4173
+
+# Optional: Secret key for sessions
+SECRET_KEY=your_secret_key_here
+```
+
+#### Option B: Azure OpenAI Configuration
+
+**1. Set up Azure OpenAI Resource:**
+- Create an Azure OpenAI resource in the Azure portal
+- Deploy GPT-4 (or GPT-3.5-turbo) for chat completions
+- Deploy text-embedding-ada-002 for embeddings
+
+**2. Configure .env for Azure OpenAI:**
+```env
+# LLM Provider Selection
+LLM_PROVIDER=azure_openai
+
+# Azure OpenAI Configuration
 AZURE_OPENAI_API_KEY=your_azure_openai_api_key
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_OPENAI_API_VERSION=2023-12-01-preview
 AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME=text-embedding-ada-002
 
-# Database Configuration (Phase 2)
-DATABASE_URL=postgresql+asyncpg://username:password@localhost:5432/secondbrain
+# Database Configuration
+DATABASE_URL=postgresql+asyncpg://secondbrain:password@postgres:5432/secondbrain
 POSTGRES_USER=secondbrain
-POSTGRES_PASSWORD=your_secure_password
+POSTGRES_PASSWORD=password
 POSTGRES_DB=secondbrain
 
 # CORS Configuration
-CORS_ORIGINS=http://localhost:5173,http://localhost:4173
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:4173
+
+# Secret Key
+SECRET_KEY=your_secret_key_here
 ```
+
+### Recommended Model Combinations
+
+| Use Case | Chat Model | Embedding Model | Performance |
+|----------|------------|-----------------|-------------|
+| **Lightweight Dev** | `smollm2:135m` | `nomic-embed-text` | Fast, minimal RAM |
+| **Balanced Performance** | `llama3.2:3b` | `mxbai-embed-large` | Good quality/speed |
+| **High Quality** | `llama3.2:8b` | `mxbai-embed-large` | Best quality, more RAM |
+| **Cloud Production** | Azure GPT-4 | Azure text-embedding-ada-002 | Enterprise grade |
+
+### Hardware Requirements
+
+**For Ollama Models:**
+- **smollm2:135m**: 2GB RAM minimum, runs on any modern CPU
+- **llama3.2:3b**: 4GB RAM minimum, faster with GPU
+- **llama3.2:8b**: 8GB RAM minimum, GPU recommended
+
+**For Docker Setup:**
+- Docker Desktop with at least 4GB allocated memory
+- 10GB free disk space for images and models
 
 ### Frontend Configuration
 
@@ -1078,9 +1188,22 @@ This codebase is designed for collaboration and extension:
 ### Common Issues
 
 **Backend fails to start:**
-- Check Azure OpenAI credentials in `.env`
+- **For Ollama**: Check if Ollama is running with `ollama list` or `curl http://localhost:11434/api/tags`
+- **For Azure OpenAI**: Check Azure OpenAI credentials in `.env`
 - Verify Python dependencies are installed
 - Ensure port 8000 is not in use
+
+**Ollama-specific issues:**
+- **"Connection refused" errors**: Make sure Ollama is installed and running (`ollama serve`)
+- **Model not found**: Pull the required models (`ollama pull smollm2:135m`)
+- **Embedding errors**: Ensure embedding model is available (`ollama pull mxbai-embed-large`)
+- **Slow responses**: Consider using a smaller model or GPU acceleration
+- **Out of memory**: Try a lighter model like `smollm2:135m`
+
+**Azure OpenAI issues:**
+- **Authentication errors**: Verify API key and endpoint in `.env`
+- **Rate limiting**: Check your Azure OpenAI quotas and usage
+- **Model not found**: Ensure deployment names match your Azure resource
 
 **Frontend shows connection errors:**
 - Confirm backend is running on port 8000
@@ -1091,5 +1214,34 @@ This codebase is designed for collaboration and extension:
 - Check browser console for JavaScript errors
 - Verify Server-Sent Events support
 - Test API endpoints directly at `/docs`
+
+**RAG/Embedding issues:**
+- **No relevant results**: Try lowering the similarity threshold
+- **Embedding service unavailable**: Check your provider configuration and model availability
+- **Search timeouts**: For Ollama, ensure sufficient system resources
+
+**Docker issues:**
+- **Container fails to start**: Check Docker logs with `docker-compose logs backend`
+- **Ollama unreachable in Docker**: Ensure Ollama is accessible at `host.docker.internal:11434`
+- **Memory issues**: Increase Docker memory allocation to at least 4GB
+
+### Debug Commands
+
+```bash
+# Check backend logs
+docker-compose -f docker-compose.dev.yml logs backend
+
+# Test Ollama connectivity
+curl http://localhost:11434/api/tags
+
+# Test backend health
+curl http://localhost:8000/api/v1/health
+
+# Check database connection
+docker-compose -f docker-compose.dev.yml exec postgres psql -U secondbrain -d secondbrain -c "\dt"
+
+# View environment variables
+docker-compose -f docker-compose.dev.yml exec backend env | grep -E "(LLM_PROVIDER|OLLAMA_|AZURE_)"
+```
 
 **Need help?** Check the auto-generated API documentation at `http://localhost:8000/docs` when the backend is running.
