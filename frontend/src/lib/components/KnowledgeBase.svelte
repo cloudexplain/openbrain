@@ -11,28 +11,29 @@
 	import TagSelector from "./TagSelector.svelte";
 	import TipTapEditor from "./TipTapEditor.svelte";
 	import { invalidateAll } from "$app/navigation";
+	import { authService } from "$lib/stores/auth";
 
 	const dispatch = createEventDispatcher();
 
 	// Auto-resize textarea action
 	function autoResize(node: HTMLTextAreaElement) {
 		function resize() {
-			node.style.height = 'auto';
+			node.style.height = "auto";
 			// Set min height to 100px, but expand as needed
 			const scrollHeight = node.scrollHeight;
-			node.style.height = Math.max(100, scrollHeight) + 'px';
+			node.style.height = Math.max(100, scrollHeight) + "px";
 		}
-		
+
 		// Initial resize
 		resize();
-		
+
 		// Resize on input
-		node.addEventListener('input', resize);
-		
+		node.addEventListener("input", resize);
+
 		return {
 			destroy() {
-				node.removeEventListener('input', resize);
-			}
+				node.removeEventListener("input", resize);
+			},
 		};
 	}
 
@@ -41,7 +42,7 @@
 	export let highlightPages: number[] = [];
 	let selectedDocument: DocumentDetail | null = null;
 	let selectedDocumentChunks: DocumentWithChunks | null = null;
-	
+
 	// Chunk data for highlighting
 	let chunkData: any[] = [];
 	let highlightedContent = "";
@@ -53,19 +54,21 @@
 	let uploadLoading = false;
 	let uploadedFiles: File[] = [];
 	let isDragging = false;
-	let uploadProgress: { [key: string]: { progress: number; status: string } } = {};
+	let uploadProgress: {
+		[key: string]: { progress: number; status: string };
+	} = {};
 	let isEditMode = false;
 	let editedChunks: DocumentChunk[] = [];
 	let editedTitle = "";
-	let editedContent = "";  // Single unified content for editing
+	let editedContent = ""; // Single unified content for editing
 	let hasChanges = false;
-	let displayMode: "formatted" | "raw" = "formatted";  // Display mode toggle
-	
+	let displayMode: "formatted" | "raw" = "formatted"; // Display mode toggle
+
 	// Cache for loaded documents to avoid re-fetching
 	let documentCache: Map<string, DocumentDetail> = new Map();
 	let showDeleteModal = false;
 	let documentToDelete: DocumentDetail | null = null;
-	
+
 	// PDF viewer state
 	let viewMode: "raw" | "pdf" = "raw";
 	let isPdfDocument = false;
@@ -109,7 +112,7 @@
 	async function selectDocument(doc: Document) {
 		// Reset PDF state
 		isPdfDocument = false;
-		
+
 		// Check cache first
 		if (documentCache.has(doc.id)) {
 			selectedDocument = documentCache.get(doc.id) || null;
@@ -118,15 +121,17 @@
 					selectedDocument.content,
 				) as string;
 				// Check if it's a PDF document and set view mode accordingly
-				isPdfDocument = selectedDocument.file_type === "application/pdf";
+				isPdfDocument =
+					selectedDocument.file_type ===
+					"application/pdf";
 				viewMode = isPdfDocument ? "pdf" : "raw";
-				
+
 				// Load chunk data for highlighting if needed
 				await loadChunkDataForHighlighting();
 			}
 			return;
 		}
-		
+
 		documentLoading = true;
 		try {
 			const response = await fetch(
@@ -140,7 +145,7 @@
 			}
 
 			selectedDocument = await response.json();
-			
+
 			// Cache the document for future use
 			if (selectedDocument) {
 				documentCache.set(doc.id, selectedDocument);
@@ -148,15 +153,20 @@
 					selectedDocument.content,
 				) as string;
 				// Check if it's a PDF document and set view mode accordingly
-				isPdfDocument = selectedDocument.file_type === "application/pdf";
+				isPdfDocument =
+					selectedDocument.file_type ===
+					"application/pdf";
 				viewMode = isPdfDocument ? "pdf" : "raw";
-				
+
 				// Load chunk data for highlighting if needed
 				await loadChunkDataForHighlighting();
 			}
 		} catch (error) {
 			console.error("Failed to load document:", error);
-			showPushNotification("Failed to load document", "error");
+			showPushNotification(
+				"Failed to load document",
+				"error",
+			);
 		} finally {
 			documentLoading = false;
 		}
@@ -246,10 +256,12 @@
 				JSON.stringify(selectedDocumentChunks.chunks),
 			); // Deep clone
 			editedTitle = selectedDocumentChunks.title;
-			
+
 			// Combine all chunks into single content for unified editing
-			editedContent = editedChunks.map(chunk => chunk.content).join('\n\n');
-			
+			editedContent = editedChunks
+				.map((chunk) => chunk.content)
+				.join("\n\n");
+
 			hasChanges = false;
 		} catch (error) {
 			console.error("Failed to load document chunks:", error);
@@ -271,7 +283,7 @@
 		editedContent = "";
 		hasChanges = false;
 	}
-	
+
 	function closeDocument() {
 		selectedDocument = null;
 		viewMode = "raw";
@@ -279,7 +291,7 @@
 		chunkData = [];
 		highlightedContent = "";
 	}
-	
+
 	async function loadChunkDataForHighlighting() {
 		if (!selectedDocument || !highlightChunks.length) {
 			highlightedContent = selectedDocument?.content || "";
@@ -287,72 +299,97 @@
 		}
 
 		try {
-			const chunkUrl = `/api/v1/documents/${selectedDocument.id}/chunks?chunk_ids=${highlightChunks.join(',')}`;
-			console.log('Loading chunk data for highlighting:', chunkUrl);
+			const chunkUrl = `/api/v1/documents/${selectedDocument.id}/chunks?chunk_ids=${highlightChunks.join(",")}`;
+			console.log(
+				"Loading chunk data for highlighting:",
+				chunkUrl,
+			);
 
 			const response = await fetch(chunkUrl, {
 				headers: {
-					'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-					'Content-Type': 'application/json'
-				}
+					Authorization: `Bearer ${localStorage.getItem("access_token")}`,
+					"Content-Type": "application/json",
+				},
 			});
 
 			if (response.ok) {
 				const data = await response.json();
 				chunkData = data.chunks || [];
-				console.log('Loaded chunk data:', chunkData);
-				
+				console.log("Loaded chunk data:", chunkData);
+
 				// Apply highlights to raw content
 				if (selectedDocument.content) {
-					highlightedContent = highlightTextInRaw(selectedDocument.content, chunkData);
+					highlightedContent = highlightTextInRaw(
+						selectedDocument.content,
+						chunkData,
+					);
 				}
 			} else {
-				console.error('Failed to load chunk data:', response.status);
-				highlightedContent = selectedDocument?.content || "";
+				console.error(
+					"Failed to load chunk data:",
+					response.status,
+				);
+				highlightedContent =
+					selectedDocument?.content || "";
 			}
 		} catch (err) {
-			console.error('Error loading chunk data:', err);
+			console.error("Error loading chunk data:", err);
 			highlightedContent = selectedDocument?.content || "";
 		}
 	}
-	
+
 	function highlightTextInRaw(content: string, chunks: any[]): string {
 		if (!chunks.length) return content;
-		
+
 		let highlightedText = content;
-		
+
 		// Sort chunks by content length (longest first) to avoid partial matches
 		const sortedChunks = [...chunks].sort((a, b) => {
-			const aText = a.content || a.chunk_text || a.text || '';
-			const bText = b.content || b.chunk_text || b.text || '';
+			const aText = a.content || a.chunk_text || a.text || "";
+			const bText = b.content || b.chunk_text || b.text || "";
 			return bText.length - aText.length;
 		});
-		
+
 		sortedChunks.forEach((chunk, index) => {
-			const chunkText = chunk.content || chunk.chunk_text || chunk.text || '';
+			const chunkText =
+				chunk.content ||
+				chunk.chunk_text ||
+				chunk.text ||
+				"";
 			if (!chunkText.trim()) return;
-			
+
 			// Use fuzzy matching - look for the chunk text (allowing for minor variations)
-			const normalizedChunkText = chunkText.toLowerCase().trim();
+			const normalizedChunkText = chunkText
+				.toLowerCase()
+				.trim();
 			const normalizedContent = highlightedText.toLowerCase();
-			
+
 			// Find the chunk text in the content
-			const chunkIndex = normalizedContent.indexOf(normalizedChunkText);
-			
+			const chunkIndex =
+				normalizedContent.indexOf(normalizedChunkText);
+
 			if (chunkIndex !== -1) {
 				// Get the actual text from the original content (preserving case)
-				const actualText = highlightedText.substring(chunkIndex, chunkIndex + chunkText.length);
-				
+				const actualText = highlightedText.substring(
+					chunkIndex,
+					chunkIndex + chunkText.length,
+				);
+
 				// Replace with highlighted version
 				const highlightedChunk = `<mark class="chunk-highlight" data-chunk-id="${chunk.id}" data-chunk-index="${index}">${actualText}</mark>`;
-				
-				highlightedText = 
-					highlightedText.substring(0, chunkIndex) + 
-					highlightedChunk + 
-					highlightedText.substring(chunkIndex + chunkText.length);
+
+				highlightedText =
+					highlightedText.substring(
+						0,
+						chunkIndex,
+					) +
+					highlightedChunk +
+					highlightedText.substring(
+						chunkIndex + chunkText.length,
+					);
 			}
 		});
-		
+
 		return highlightedText;
 	}
 
@@ -383,29 +420,39 @@
 			// Split the unified content back into chunks
 			// We'll use a simple strategy: split by double newlines or by max chunk size
 			const chunkSize = 1500; // Approximate chunk size in characters
-			const paragraphs = editedContent.split('\n\n');
+			const paragraphs = editedContent.split("\n\n");
 			const newChunks = [];
-			let currentChunk = '';
-			
+			let currentChunk = "";
+
 			for (const paragraph of paragraphs) {
-				if ((currentChunk + '\n\n' + paragraph).length > chunkSize && currentChunk.length > 0) {
+				if (
+					(currentChunk + "\n\n" + paragraph)
+						.length > chunkSize &&
+					currentChunk.length > 0
+				) {
 					// Save current chunk and start new one
 					newChunks.push({
 						content: currentChunk.trim(),
-						id: editedChunks[newChunks.length]?.id // Keep existing ID if available
+						id: editedChunks[
+							newChunks.length
+						]?.id, // Keep existing ID if available
 					});
 					currentChunk = paragraph;
 				} else {
 					// Add to current chunk
-					currentChunk = currentChunk ? currentChunk + '\n\n' + paragraph : paragraph;
+					currentChunk = currentChunk
+						? currentChunk +
+							"\n\n" +
+							paragraph
+						: paragraph;
 				}
 			}
-			
+
 			// Don't forget the last chunk
 			if (currentChunk.trim()) {
 				newChunks.push({
 					content: currentChunk.trim(),
-					id: editedChunks[newChunks.length]?.id
+					id: editedChunks[newChunks.length]?.id,
 				});
 			}
 
@@ -420,7 +467,7 @@
 					},
 					body: JSON.stringify({
 						title: editedTitle,
-						chunks: newChunks,  // Send all chunks (full replacement)
+						chunks: newChunks, // Send all chunks (full replacement)
 					}),
 				},
 			);
@@ -467,7 +514,7 @@
 		// Convert FileList to Array and process
 		const fileArray = Array.from(files);
 		await processFiles(fileArray);
-		
+
 		// Reset file input
 		if (target) {
 			target.value = "";
@@ -485,7 +532,7 @@
 			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		];
 		const maxSize = 50 * 1024 * 1024; // 50MB
-		
+
 		const validFiles: File[] = [];
 		for (const file of files) {
 			if (!allowedTypes.includes(file.type)) {
@@ -504,7 +551,7 @@
 			}
 			validFiles.push(file);
 		}
-		
+
 		if (validFiles.length === 0) return;
 
 		uploadLoading = true;
@@ -512,7 +559,7 @@
 
 		// Show processing notification
 		const processingNotificationId = showPushNotification(
-			`Uploading ${validFiles.length} file${validFiles.length > 1 ? 's' : ''}...`,
+			`Uploading ${validFiles.length} file${validFiles.length > 1 ? "s" : ""}...`,
 			"processing",
 			0,
 		); // Duration 0 = stays until removed
@@ -524,10 +571,14 @@
 				const formData = new FormData();
 				formData.append("file", validFiles[0]);
 
-				const fetchResponse = await fetch("?/uploadDocument", {
-					method: "POST",
-					body: formData,
-				});
+				const fetchResponse = await fetch(
+					"/api/v1/documents/upload",
+					{
+						method: "POST",
+						headers: authService.getAuthHeaders(),
+						body: formData,
+					},
+				);
 
 				if (!fetchResponse.ok) {
 					throw new Error(
@@ -545,36 +596,58 @@
 				// Multiple file upload - upload sequentially to show progress
 				let successCount = 0;
 				let failCount = 0;
-				
+
 				for (let i = 0; i < validFiles.length; i++) {
 					const file = validFiles[i];
-					uploadProgress[file.name] = { progress: (i / validFiles.length) * 100, status: 'uploading' };
-					
+					uploadProgress[file.name] = {
+						progress:
+							(i /
+								validFiles.length) *
+							100,
+						status: "uploading",
+					};
+
 					try {
 						const formData = new FormData();
 						formData.append("file", file);
 
-						const fetchResponse = await fetch("?/uploadDocument", {
-							method: "POST",
-							body: formData,
-						});
+						const fetchResponse =
+							await fetch(
+								"/api/v1/documents/upload",
+								{
+									method: "POST",
+									headers: authService.getAuthHeaders(),
+									body: formData,
+								},
+							);
 
 						if (!fetchResponse.ok) {
-							throw new Error(`Upload failed for ${file.name}`);
+							throw new Error(
+								`Upload failed for ${file.name}`,
+							);
 						}
-						
-						uploadProgress[file.name] = { progress: 100, status: 'completed' };
+
+						uploadProgress[file.name] = {
+							progress: 100,
+							status: "completed",
+						};
 						successCount++;
 					} catch (error) {
-						uploadProgress[file.name] = { progress: 100, status: 'failed' };
+						uploadProgress[file.name] = {
+							progress: 100,
+							status: "failed",
+						};
 						failCount++;
-						console.error(`Failed to upload ${file.name}:`, error);
+						console.error(
+							`Failed to upload ${file.name}:`,
+							error,
+						);
 					}
 				}
-				
+
 				if (successCount > 0) {
 					showPushNotification(
-						`Successfully uploaded ${successCount} file${successCount > 1 ? 's' : ''}${failCount > 0 ? `, ${failCount} failed` : ''}`,
+						`Successfully uploaded ${successCount} file${successCount > 1 ? "s" : ""}${failCount > 0 ? `, ${failCount} failed` : ""}`,
 						"success",
 						3000,
 					);
@@ -626,74 +699,78 @@
 			uploadProgress = {};
 		}
 	}
-	
+
 	function handleDragOver(event: DragEvent) {
 		event.preventDefault();
 		isDragging = true;
 	}
-	
+
 	function handleDragLeave(event: DragEvent) {
 		event.preventDefault();
 		isDragging = false;
 	}
-	
+
 	async function handleDrop(event: DragEvent) {
 		event.preventDefault();
 		isDragging = false;
-		
+
 		const files = event.dataTransfer?.files;
 		if (!files || files.length === 0) return;
-		
+
 		// Convert FileList to Array and process
 		const fileArray = Array.from(files);
 		await processFiles(fileArray);
 	}
-	
+
 	function confirmDeleteDocument(doc: DocumentDetail) {
 		documentToDelete = doc;
 		showDeleteModal = true;
 	}
-	
+
 	async function deleteDocument() {
 		if (!documentToDelete) return;
-		
+
 		const deletingNotificationId = showPushNotification(
 			`Deleting "${documentToDelete.title}"...`,
 			"processing",
 			0,
 		);
-		
+
 		try {
-			const response = await fetch(`/api/v1/documents/${documentToDelete.id}`, {
-				method: "DELETE",
-			});
-			
+			const response = await fetch(
+				`/api/v1/documents/${documentToDelete.id}`,
+				{
+					method: "DELETE",
+				},
+			);
+
 			if (!response.ok) {
-				throw new Error(`Delete failed: ${response.status} ${response.statusText}`);
+				throw new Error(
+					`Delete failed: ${response.status} ${response.statusText}`,
+				);
 			}
-			
+
 			removePushNotification(deletingNotificationId);
 			showPushNotification(
 				`"${documentToDelete.title}" deleted successfully`,
 				"success",
 				3000,
 			);
-			
+
 			// Clear from cache if it exists
 			documentCache.delete(documentToDelete.id);
-			
+
 			// Clear selected document if it was the one being deleted
 			if (selectedDocument?.id === documentToDelete.id) {
 				closeDocument();
 			}
-			
+
 			// Close delete modal
 			showDeleteModal = false;
 			documentToDelete = null;
-			
+
 			// Refresh document list
 			await loadDocuments();
-			
 		} catch (error) {
 			console.error("Failed to delete document:", error);
 			removePushNotification(deletingNotificationId);
@@ -948,7 +1025,10 @@
 									Edit
 								</button>
 								<button
-									on:click={() => confirmDeleteDocument(selectedDocument)}
+									on:click={() =>
+										confirmDeleteDocument(
+											selectedDocument,
+										)}
 									class="px-4 py-2 text-sm bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors font-medium shadow-sm"
 									title="Delete document"
 								>
@@ -989,34 +1069,62 @@
 
 					<!-- View Toggle -->
 					{#if !isEditMode}
-						<div class="mt-3 flex items-center gap-3">
-							<span class="text-sm text-gray-600">View:</span>
-							<div class="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+						<div
+							class="mt-3 flex items-center gap-3"
+						>
+							<span
+								class="text-sm text-gray-600"
+								>View:</span
+							>
+							<div
+								class="flex items-center gap-2 bg-gray-100 rounded-lg p-1"
+							>
 								{#if isPdfDocument}
 									<button
-										on:click={() => viewMode = "raw"}
-										class="px-3 py-1 text-sm rounded-md transition-colors {viewMode === 'raw' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
+										on:click={() =>
+											(viewMode =
+												"raw")}
+										class="px-3 py-1 text-sm rounded-md transition-colors {viewMode ===
+										'raw'
+											? 'bg-white text-blue-600 shadow-sm'
+											: 'text-gray-600 hover:text-gray-800'}"
 									>
 										Raw
 									</button>
 									<button
-										on:click={() => viewMode = "pdf"}
-										class="px-3 py-1 text-sm rounded-md transition-colors {viewMode === 'pdf' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
+										on:click={() =>
+											(viewMode =
+												"pdf")}
+										class="px-3 py-1 text-sm rounded-md transition-colors {viewMode ===
+										'pdf'
+											? 'bg-white text-blue-600 shadow-sm'
+											: 'text-gray-600 hover:text-gray-800'}"
 									>
 										PDF
 									</button>
 								{:else}
 									<button
-										on:click={() => displayMode = "formatted"}
-										class="px-3 py-1 text-sm rounded-md transition-colors {displayMode === 'formatted' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
+										on:click={() =>
+											(displayMode =
+												"formatted")}
+										class="px-3 py-1 text-sm rounded-md transition-colors {displayMode ===
+										'formatted'
+											? 'bg-white text-blue-600 shadow-sm'
+											: 'text-gray-600 hover:text-gray-800'}"
 									>
 										Formatted
 									</button>
 									<button
-										on:click={() => displayMode = "raw"}
-										class="px-3 py-1 text-sm rounded-md transition-colors {displayMode === 'raw' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
+										on:click={() =>
+											(displayMode =
+												"raw")}
+										class="px-3 py-1 text-sm rounded-md transition-colors {displayMode ===
+										'raw'
+											? 'bg-white text-blue-600 shadow-sm'
+											: 'text-gray-600 hover:text-gray-800'}"
 									>
-										Raw Markdown
+										Raw
+										Markdown
 									</button>
 								{/if}
 							</div>
@@ -1036,7 +1144,14 @@
 								)}
 							on:createTag={(e) => {
 								// Dispatch event to parent to switch to tag management
-								dispatch('switchToTags', { tagName: e.detail.name });
+								dispatch(
+									"switchToTags",
+									{
+										tagName: e
+											.detail
+											.name,
+									},
+								);
 							}}
 						/>
 					</div>
@@ -1044,31 +1159,54 @@
 
 				<!-- Document Content -->
 				<div
-					class="flex-1 overflow-y-auto bg-white custom-scrollbar min-h-0 relative {viewMode === 'pdf' ? 'p-0' : 'px-6 py-4'}"
+					class="flex-1 overflow-y-auto bg-white custom-scrollbar min-h-0 relative {viewMode ===
+					'pdf'
+						? 'p-0'
+						: 'px-6 py-4'}"
 				>
 					{#if isEditMode}
 						<!-- Display mode toggle for edit mode -->
-						<div class="mb-4 flex items-center gap-3 sticky top-0 bg-white pb-2 border-b border-gray-200 z-10">
-							<span class="text-sm text-gray-600">View:</span>
-							<div class="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+						<div
+							class="mb-4 flex items-center gap-3 sticky top-0 bg-white pb-2 border-b border-gray-200 z-10"
+						>
+							<span
+								class="text-sm text-gray-600"
+								>View:</span
+							>
+							<div
+								class="flex items-center gap-2 bg-gray-100 rounded-lg p-1"
+							>
 								<button
-									on:click={() => displayMode = "formatted"}
-									class="px-3 py-1 text-sm rounded-md transition-colors {displayMode === 'formatted' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
+									on:click={() =>
+										(displayMode =
+											"formatted")}
+									class="px-3 py-1 text-sm rounded-md transition-colors {displayMode ===
+									'formatted'
+										? 'bg-white text-blue-600 shadow-sm'
+										: 'text-gray-600 hover:text-gray-800'}"
 								>
 									Formatted
 								</button>
 								<button
-									on:click={() => displayMode = "raw"}
-									class="px-3 py-1 text-sm rounded-md transition-colors {displayMode === 'raw' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}"
+									on:click={() =>
+										(displayMode =
+											"raw")}
+									class="px-3 py-1 text-sm rounded-md transition-colors {displayMode ===
+									'raw'
+										? 'bg-white text-blue-600 shadow-sm'
+										: 'text-gray-600 hover:text-gray-800'}"
 								>
 									Raw
 								</button>
 							</div>
-							<span class="text-xs text-gray-500 ml-auto">
-								{editedContent.length} characters
+							<span
+								class="text-xs text-gray-500 ml-auto"
+							>
+								{editedContent.length}
+								characters
 							</span>
 						</div>
-						
+
 						{#if displayMode === "formatted"}
 							<!-- TipTap Editor (without instructional text) -->
 							<div class="space-y-3">
@@ -1083,12 +1221,30 @@
 						{:else}
 							<!-- Raw markdown view -->
 							<div class="space-y-3">
-								<div class="text-xs text-gray-500">
-									Edit raw markdown syntax. Use **bold**, *italic*, # headings, etc.
+								<div
+									class="text-xs text-gray-500"
+								>
+									Edit raw
+									markdown
+									syntax.
+									Use
+									**bold**,
+									*italic*,
+									#
+									headings,
+									etc.
 								</div>
 								<textarea
 									value={editedContent}
-									on:input={(e) => handleContentEdit('', e.currentTarget.value)}
+									on:input={(
+										e,
+									) =>
+										handleContentEdit(
+											"",
+											e
+												.currentTarget
+												.value,
+										)}
 									class="w-full p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
 									placeholder="Enter markdown content..."
 									style="height: 500px;"
@@ -1106,9 +1262,12 @@
 						{:else if displayMode === "raw"}
 							<!-- Raw markdown display (read-only) with highlighting -->
 							{#if highlightChunks.length > 0}
-								<pre class="w-full p-4 bg-gray-50 border border-gray-200 rounded-lg font-mono text-sm whitespace-pre-wrap overflow-x-auto">{@html highlightedContent}</pre>
+								<pre
+									class="w-full p-4 bg-gray-50 border border-gray-200 rounded-lg font-mono text-sm whitespace-pre-wrap overflow-x-auto">{@html highlightedContent}</pre>
 							{:else}
-								<pre class="w-full p-4 bg-gray-50 border border-gray-200 rounded-lg font-mono text-sm whitespace-pre-wrap overflow-x-auto">{selectedDocument?.content || ""}</pre>
+								<pre
+									class="w-full p-4 bg-gray-50 border border-gray-200 rounded-lg font-mono text-sm whitespace-pre-wrap overflow-x-auto">{selectedDocument?.content ||
+										""}</pre>
 							{/if}
 						{:else}
 							<!-- Formatted markdown content -->
@@ -1247,7 +1406,9 @@
 				</div>
 
 				<div
-					class="border-2 border-dashed rounded-lg p-8 text-center transition-colors {isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}"
+					class="border-2 border-dashed rounded-lg p-8 text-center transition-colors {isDragging
+						? 'border-blue-500 bg-blue-50'
+						: 'border-gray-300'}"
 					on:dragover={handleDragOver}
 					on:dragleave={handleDragLeave}
 					on:drop={handleDrop}
@@ -1266,28 +1427,55 @@
 						<div
 							class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"
 						></div>
-						<p class="text-sm text-gray-600 mb-3">
-							Uploading {uploadedFiles.length} file{uploadedFiles.length > 1 ? 's' : ''}...
+						<p
+							class="text-sm text-gray-600 mb-3"
+						>
+							Uploading {uploadedFiles.length}
+							file{uploadedFiles.length >
+							1
+								? "s"
+								: ""}...
 						</p>
 						{#if Object.keys(uploadProgress).length > 0}
-							<div class="space-y-2 max-h-48 overflow-y-auto">
+							<div
+								class="space-y-2 max-h-48 overflow-y-auto"
+							>
 								{#each Object.entries(uploadProgress) as [filename, progress]}
-									<div class="text-xs text-left">
-										<div class="flex items-center justify-between mb-1">
-											<span class="truncate flex-1">{filename}</span>
-											<span class="ml-2">
-												{#if progress.status === 'completed'}
+									<div
+										class="text-xs text-left"
+									>
+										<div
+											class="flex items-center justify-between mb-1"
+										>
+											<span
+												class="truncate flex-1"
+												>{filename}</span
+											>
+											<span
+												class="ml-2"
+											>
+												{#if progress.status === "completed"}
 													✓
-												{:else if progress.status === 'failed'}
+												{:else if progress.status === "failed"}
 													✗
 												{:else}
-													{Math.round(progress.progress)}%
+													{Math.round(
+														progress.progress,
+													)}%
 												{/if}
 											</span>
 										</div>
-										<div class="w-full bg-gray-200 rounded-full h-1.5">
-											<div 
-												class="h-1.5 rounded-full transition-all {progress.status === 'failed' ? 'bg-red-500' : progress.status === 'completed' ? 'bg-green-500' : 'bg-blue-500'}"
+										<div
+											class="w-full bg-gray-200 rounded-full h-1.5"
+										>
+											<div
+												class="h-1.5 rounded-full transition-all {progress.status ===
+												'failed'
+													? 'bg-red-500'
+													: progress.status ===
+														  'completed'
+														? 'bg-green-500'
+														: 'bg-blue-500'}"
 												style="width: {progress.progress}%"
 											></div>
 										</div>
@@ -1309,18 +1497,36 @@
 								d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
 							/>
 						</svg>
-						<p class="text-sm text-gray-600 mb-2">
-							{isDragging ? 'Drop files here' : 'Drag & drop files here or click to browse'}
+						<p
+							class="text-sm text-gray-600 mb-2"
+						>
+							{isDragging
+								? "Drop files here"
+								: "Drag & drop files here or click to browse"}
 						</p>
-						<p class="text-xs text-gray-500 mb-4">
-							Supports PDF, TXT, MD, and DOCX files (max 50MB each)
+						<p
+							class="text-xs text-gray-500 mb-4"
+						>
+							Supports PDF, TXT, MD,
+							and DOCX files (max 50MB
+							each)
 						</p>
 						<label
 							for="fileUpload"
 							class="inline-flex items-center px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg cursor-pointer transition-colors"
 						>
-							<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+							<svg
+								class="w-4 h-4 mr-2"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M12 4v16m8-8H4"
+								></path>
 							</svg>
 							Select Files
 						</label>
@@ -1383,24 +1589,53 @@
 				</div>
 
 				<div class="mb-6">
-					<div class="flex items-center gap-3 mb-3">
-						<div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-							<svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+					<div
+						class="flex items-center gap-3 mb-3"
+					>
+						<div
+							class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center"
+						>
+							<svg
+								class="w-6 h-6 text-red-600"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+								></path>
 							</svg>
 						</div>
 						<div>
-							<p class="text-sm text-gray-600">
-								Are you sure you want to delete this document?
+							<p
+								class="text-sm text-gray-600"
+							>
+								Are you sure you
+								want to delete
+								this document?
 							</p>
-							<p class="font-medium text-gray-900 mt-1">
+							<p
+								class="font-medium text-gray-900 mt-1"
+							>
 								"{documentToDelete.title}"
 							</p>
 						</div>
 					</div>
-					<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-						<p class="text-sm text-yellow-800">
-							<strong>Warning:</strong> This action cannot be undone. The document and all its content will be permanently removed from your knowledge base.
+					<div
+						class="bg-yellow-50 border border-yellow-200 rounded-lg p-3"
+					>
+						<p
+							class="text-sm text-yellow-800"
+						>
+							<strong>Warning:</strong
+							> This action cannot be undone.
+							The document and all its
+							content will be permanently
+							removed from your knowledge
+							base.
 						</p>
 					</div>
 				</div>
@@ -1510,7 +1745,7 @@
 		border-left: 4px solid #3b82f6;
 		background-color: #eff6ff;
 	}
-	
+
 	/* Chunk highlighting styles */
 	:global(.chunk-highlight) {
 		background-color: rgba(255, 255, 0, 0.3);

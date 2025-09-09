@@ -446,8 +446,13 @@
 		try {
 			const formData = new FormData();
 			formData.append('file', file);
+			// const response = await fetch("?/uploadDocument", {
+			// 	method: "POST",
+			// 	headers: authService.getAuthHeaders(),
+			// 	body: formData,
+			// });
 
-			const response = await fetch('/api/v1/upload', {
+			const response = await fetch('/api/v1/documents/upload', {
 				method: 'POST',
 				headers: authService.getAuthHeaders(),
 				body: formData
