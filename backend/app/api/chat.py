@@ -116,7 +116,12 @@ async def chat_with_ai(
                     current_user.id,
                     use_rag=request.use_rag,
                     rag_limit=request.rag_limit,
-                    rag_threshold=request.rag_threshold
+                    rag_threshold=request.rag_threshold,
+                    use_deep_research=request.use_deep_research,
+                    max_concurrent_research_units=request.max_concurrent_research_units,
+                    max_researcher_iterations=request.max_researcher_iterations,
+                    max_react_tool_calls=request.max_react_tool_calls,
+                    max_structured_output_retries=request.max_structured_output_retries
                 ):
                     # Handle both 2-tuple, 3-tuple, and 4-tuple returns
                     if len(result) == 2:
@@ -1244,3 +1249,18 @@ Please respond with just the summary, no additional formatting."""
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to summarize chat: {str(e)}")
+
+
+@router.get("/messages/{message_id}/status")
+async def get_message_status(
+    message_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get deep research status for a specific message"""
+    status = await ChatService.get_message_status(db, message_id, current_user.id)
+    
+    if not status:
+        raise HTTPException(status_code=404, detail="Message not found")
+    
+    return status

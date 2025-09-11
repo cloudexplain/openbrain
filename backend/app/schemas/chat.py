@@ -70,6 +70,12 @@ class ChatRequest(BaseModel):
     use_rag: bool = True  # Enable RAG by default
     rag_limit: int = 5  # Number of relevant chunks to retrieve
     rag_threshold: float = 0.7  # Minimum similarity threshold
+    # Deep research parameters
+    use_deep_research: bool = False
+    max_concurrent_research_units: Optional[int] = Field(default=1)
+    max_researcher_iterations: Optional[int] = Field(default=1)
+    max_react_tool_calls: Optional[int] = Field(default=1)
+    max_structured_output_retries: Optional[int] = Field(default=1)
 
 
 class StreamResponse(BaseModel):

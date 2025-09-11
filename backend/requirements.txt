@@ -21,3 +21,7 @@ PyPDF==5.9.0
 python-jose[cryptography]==3.3.0
 bcrypt
 azure-communication-email
+langgraph
+# langchain-mcp-adapters  # <- todo: version conflict with openai and fastapi on anyio
+langchain-tavily
+tavily-python>=0.5.0

@@ -6,11 +6,14 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import text
 import json
 import re
+import asyncio
+from datetime import datetime
 
 from app.models.chat import Chat as ChatModel, Message as MessageModel, Tag, DocumentTag
 from app.schemas.chat import ChatCreate, MessageCreate, ChatListItem, Chat, Message
 from app.services.azure_openai import azure_openai_service
 from app.services.embedding_service import embedding_service
+from app.services.deep_research_service import DeepResearchService
 
 
 class ChatService:
@@ -272,7 +275,12 @@ class ChatService:
         user_id: UUID,
         use_rag: bool = True,
         rag_limit: int = 5,
-        rag_threshold: float = 0.7
+        rag_threshold: float = 0.7,
+        use_deep_research: bool = False,
+        max_concurrent_research_units: int = 1,
+        max_researcher_iterations: int = 1,
+        max_react_tool_calls: int = 1,
+        max_structured_output_retries: int = 1
     ) -> AsyncGenerator[tuple[str, Optional[UUID]], None]:
         """Generate AI response for a chat message with optional RAG support"""
         # Get chat with messages for context
@@ -504,6 +512,45 @@ Do not end with opt-in questions or hedging closers. Do **not** say the followin
         
         # Generate response
         response_content = ""
+        
+        if use_deep_research:
+            # Unified approach: Create assistant message immediately with "running" status
+            deep_research_params = {
+                "max_concurrent_research_units": max_concurrent_research_units,
+                "max_researcher_iterations": max_researcher_iterations,
+                "max_react_tool_calls": max_react_tool_calls,
+                "max_structured_output_retries": max_structured_output_retries,
+                "query": user_message
+            }
+            
+            # Create assistant message using the existing add_message method
+            assistant_msg = await ChatService.add_message(
+                db,
+                chat_id,
+                MessageCreate(content="Deep research in progress...", role="assistant")
+            )
+            
+            # Update with deep research specific fields
+            result = await db.execute(
+                select(MessageModel).where(MessageModel.id == assistant_msg.id)
+            )
+            db_message = result.scalar_one_or_none()
+            if db_message:
+                db_message.is_deep_research = True
+                db_message.deep_research_status = "running"
+                db_message.deep_research_params = json.dumps(deep_research_params)
+                await db.commit()
+            
+            # Start deep research in background (fire and forget)
+            asyncio.create_task(ChatService._run_deep_research_background(
+                db, assistant_msg.id, user_message, deep_research_params
+            ))
+            
+            # Return immediately - no streaming, no complex generators
+            return
+        
+        # Regular chat flow - stream and save response
+        # Use regular Azure OpenAI service for generating the response
         async for chunk in azure_openai_service.generate_chat_completion(messages):
             response_content += chunk
             yield (chunk, None)
@@ -577,3 +624,65 @@ Do not end with opt-in questions or hedging closers. Do **not** say the followin
         
         # Create new chat
         return await ChatService.create_chat(db, ChatCreate(title=title), user_id)
+    
+    @staticmethod
+    async def _run_deep_research_background(db: AsyncSession, message_id: UUID, query: str, params: dict):
+        """Run deep research in background and update message with results"""
+        try:
+            # Run the deep research
+            research_report = await DeepResearchService.run_deep_research(
+                query=query,
+                max_concurrent_research_units=params.get("max_concurrent_research_units", 1),
+                max_researcher_iterations=params.get("max_researcher_iterations", 1),
+                max_react_tool_calls=params.get("max_react_tool_calls", 1),
+                max_structured_output_retries=params.get("max_structured_output_retries", 1)
+            )
+            
+            # Update message with results
+            result = await db.execute(
+                select(MessageModel).where(MessageModel.id == message_id)
+            )
+            message = result.scalar_one_or_none()
+            
+            if message:
+                message.content = research_report
+                message.deep_research_status = "completed"
+                message.token_count = azure_openai_service.count_tokens(research_report)
+                await db.commit()
+                
+        except Exception as e:
+            # Update message with error
+            result = await db.execute(
+                select(MessageModel).where(MessageModel.id == message_id)
+            )
+            message = result.scalar_one_or_none()
+            
+            if message:
+                error_message = f"Deep research failed: {str(e)}"
+                message.content = error_message
+                message.deep_research_status = "failed"
+                message.deep_research_error = str(e)
+                await db.commit()
+    
+    @staticmethod
+    async def get_message_status(db: AsyncSession, message_id: UUID, user_id: UUID) -> Optional[dict]:
+        """Get deep research status for a message"""
+        # Get the message and verify it belongs to user's chat
+        result = await db.execute(
+            select(MessageModel)
+            .join(ChatModel, MessageModel.chat_id == ChatModel.id)
+            .where(MessageModel.id == message_id, ChatModel.user_id == user_id)
+        )
+        message = result.scalar_one_or_none()
+        
+        if not message:
+            return None
+            
+        return {
+            "id": str(message.id),
+            "content": message.content,
+            "is_deep_research": message.is_deep_research,
+            "status": message.deep_research_status,
+            "error": message.deep_research_error,
+            "created_at": message.created_at.isoformat() if message.created_at else None
+        }

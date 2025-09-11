@@ -34,7 +34,6 @@ async def create_user(username: str, password: str):
     """Create a new user with hashed password"""
     
     # Get database URL from environment or use default
-    import pdb; pdb.set_trace()
     database_url = os.getenv(
         "DATABASE_URL",
         "postgresql+asyncpg://secondbrain:secondbrain_password@localhost:5432/secondbrain"
@@ -46,7 +45,6 @@ async def create_user(username: str, password: str):
     engine = create_async_engine(database_url)
     AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
-    import pdb; pdb.set_trace()
     async with AsyncSessionLocal() as db:
         try:
             # Check if user already exists

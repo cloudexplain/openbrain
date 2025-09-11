@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer, Boolean
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -38,6 +38,12 @@ class Message(Base):
     # Store citation mappings and document references as JSON
     citation_mapping = Column(Text, nullable=True)  # JSON string for inline citation data
     document_references = Column(Text, nullable=True)  # JSON string for document references
+    
+    # Deep research fields
+    is_deep_research = Column(Boolean, default=False, nullable=False)
+    deep_research_status = Column(String(20), default=None, nullable=True)  # 'pending', 'running', 'completed', 'failed'
+    deep_research_params = Column(Text, nullable=True)  # JSON string for deep research parameters
+    deep_research_error = Column(Text, nullable=True)  # Error message if research failed
     
     # Relationship to chat
     chat = relationship("Chat", back_populates="messages")

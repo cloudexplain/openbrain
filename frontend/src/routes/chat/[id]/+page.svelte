@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { onMount } from "svelte";
+	
 	import { goto } from "$app/navigation";
+	
+	
 	import ChatMessage from "$lib/components/ChatMessage.svelte";
 	import MessageInput from "$lib/components/MessageInput.svelte";
 	import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
@@ -9,6 +12,7 @@
 	import Notification from "$lib/components/Notification.svelte";
 	import type { Message, ChatListItem, StreamResponse, DocumentReference } from "$lib/api";
 	import { authStore, authService } from "$lib/stores/auth";
+	import { deepResearchDepth, depthConfigs } from "$lib/stores/deepResearch";
 
 	// Get chat ID from route params
 	let chatId = $derived($page.params.id);
@@ -43,6 +47,14 @@
 		if (chatId) {
 			await loadChatMessages();
 		}
+		
+		// Cleanup polling interval on component destroy
+		return () => {
+			if (pollingInterval) {
+				clearInterval(pollingInterval);
+				pollingInterval = null;
+			}
+		};
 	});
 
 	// Watch for route changes
@@ -60,6 +72,30 @@
 		console.log("  - streamingMessage:", streamingMessage);
 		console.log("  - Show welcome condition:", messages.length === 0 && !isLoading && !streamingMessage);
 		console.log("  - Messages array:", messages);
+	});
+
+	// Polling for deep research completion
+	let pollingInterval = $state(null);
+
+	$effect(() => {
+		// Check if any message has deep research status "running"
+		const hasRunningResearch = messages.some(msg => 
+			msg.role === "assistant" && 
+			(msg.content === "Deep research in progress..." || msg.content?.includes("Deep research in progress"))
+		);
+
+		if (hasRunningResearch && !pollingInterval) {
+			// Start polling every 3 seconds
+			pollingInterval = setInterval(async () => {
+				await loadChatMessages();
+			}, 3000);
+			console.log("Started polling for deep research completion");
+		} else if (!hasRunningResearch && pollingInterval) {
+			// Stop polling when no running research
+			clearInterval(pollingInterval);
+			pollingInterval = null;
+			console.log("Stopped polling - no running research");
+		}
 	});
 
 	async function loadChatMessages() {
@@ -83,19 +119,26 @@
 
 			// Set messages and title with explicit reactivity
 			const loadedMessages = Array.isArray(chat.messages) ? chat.messages : [];
-			messages = [...loadedMessages]; // Force new array reference for reactivity
+			// Sort messages chronologically (oldest first)
+			const sortedMessages = loadedMessages.sort((a, b) => 
+				new Date(a.created_at || a.timestamp).getTime() - new Date(b.created_at || b.timestamp).getTime()
+			);
+			messages = [...sortedMessages]; // Force new array reference for reactivity
 			currentChatTitle = chat.title || `Chat ${chatId}`;
 
 			console.log("Set messages:", messages.length, "messages");
 			console.log("Set title:", currentChatTitle);
-			console.log("Messages array content:", messages);
 			
 			// Force UI update
 			console.log("🔄 Messages variable updated, should trigger reactive update");
 
 			// Clear any streaming message
 			streamingMessage = "";
-			console.log("Messages array:", messages);
+			
+			// Scroll to bottom after messages load
+			setTimeout(() => {
+				scrollToBottom();
+			}, 100);
 		} catch (error) {
 			console.error("Error loading chat:", error);
 			showNotification("Failed to load chat messages", "error");
@@ -104,14 +147,16 @@
 		}
 	}
 
-	async function handleSendMessage(event: CustomEvent<{ content: string }>) {
-		const content = event.detail.content.trim();
-		if (!content || isLoading) return;
+
+	async function handleSendMessage(event: CustomEvent<{ content: string; useDeepResearch: boolean }>) {
+		const { content, useDeepResearch } = event.detail;
+		const trimmedContent = content.trim();
+		if (!trimmedContent || isLoading) return;
 
 		// Create user message
 		const userMessage: Message = {
 			id: Date.now().toString(),
-			content,
+			content: trimmedContent,
 			role: "user",
 			timestamp: new Date().toISOString(),
 			chatId: chatId,
@@ -122,6 +167,9 @@
 		streamingMessage = "";
 
 		try {
+			// Get the current depth configuration
+			const currentDepthConfig = depthConfigs.find(c => c.level === $deepResearchDepth) || depthConfigs[0];
+			
 			const response = await fetch("/api/v1/chat", {
 				method: "POST",
 				headers: {
@@ -129,11 +177,16 @@
 					...authService.getAuthHeaders(),
 				},
 				body: JSON.stringify({ 
-					message: content,
+					message: trimmedContent,
 					chat_id: chatId,
-					use_rag: true,
+					use_rag: !useDeepResearch, // Disable RAG when using deep research
 					rag_limit: 5,
-					rag_threshold: 0.7
+					rag_threshold: 0.7,
+					use_deep_research: useDeepResearch,
+					max_concurrent_research_units: useDeepResearch ? currentDepthConfig.maxConcurrentResearchUnits : 1,
+					max_researcher_iterations: useDeepResearch ? currentDepthConfig.maxResearcherIterations : 1,
+					max_react_tool_calls: useDeepResearch ? currentDepthConfig.maxReactToolCalls : 1,
+					max_structured_output_retries: useDeepResearch ? currentDepthConfig.maxStructuredOutputRetries : 1
 				}),
 			});
 
@@ -141,58 +194,67 @@
 				throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 			}
 
-			const reader = response.body?.getReader();
-			const decoder = new TextDecoder();
-			let assistantMessage: Message | null = null;
+			if (useDeepResearch) {
+				// For deep research, no streaming needed - just reload messages
+				// The backend creates the message immediately and starts processing
+				// Our polling effect will detect the "running" message and start polling
+				await loadChatMessages();
+				scrollToBottom();
+			} else {
+				// Handle regular streaming for non-deep research
+				const reader = response.body?.getReader();
+				const decoder = new TextDecoder();
+				let assistantMessage: Message | null = null;
 
-			if (reader) {
-				let buffer = "";
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) break;
+				if (reader) {
+					let buffer = "";
+					while (true) {
+						const { done, value } = await reader.read();
+						if (done) break;
 
-					buffer += decoder.decode(value, { stream: true });
-					const lines = buffer.split("\n");
-					buffer = lines.pop() || "";
+						buffer += decoder.decode(value, { stream: true });
+						const lines = buffer.split("\n");
+						buffer = lines.pop() || "";
 
-					for (const line of lines) {
-						if (line.startsWith("data: ")) {
-							try {
-								const data: StreamResponse = JSON.parse(line.slice(6));
+						for (const line of lines) {
+							if (line.startsWith("data: ")) {
+								try {
+									const data: StreamResponse = JSON.parse(line.slice(6));
 
-								if (data.type === "content") {
-									// First content chunk - create assistant message if it doesn't exist
-									if (!assistantMessage) {
-										assistantMessage = {
-											id: Date.now().toString(), // Temporary ID until we get the real one
-											content: "",
-											role: "assistant",
-											timestamp: new Date().toISOString(),
-											chatId: chatId,
-										};
-										messages = [...messages, assistantMessage];
+									if (data.type === "content") {
+										// First content chunk - create assistant message if it doesn't exist
+										if (!assistantMessage) {
+											assistantMessage = {
+												id: Date.now().toString(), // Temporary ID until we get the real one
+												content: "",
+												role: "assistant",
+												timestamp: new Date().toISOString(),
+												chatId: chatId,
+											};
+											messages = [...messages, assistantMessage];
+										}
+										
+										// Append content to streaming message and assistant message
+										streamingMessage += data.content;
+										assistantMessage.content += data.content;
+										messages = [...messages];
+									} else if (data.type === "done") {
+										// Message is complete
+										if (assistantMessage && data.message_id) {
+											// Update with real message ID
+											assistantMessage.id = data.message_id;
+										}
+										
+										if (data.document_references && assistantMessage) {
+											messageDocumentReferences.set(assistantMessage.id, data.document_references);
+										}
+										
+										streamingMessage = "";
+										assistantMessage = null; // Reset for next message
 									}
-									
-									// Append content to streaming message and assistant message
-									streamingMessage += data.content;
-									assistantMessage.content += data.content;
-									messages = [...messages];
-								} else if (data.type === "done") {
-									// Message is complete
-									if (assistantMessage && data.message_id) {
-										// Update with real message ID
-										assistantMessage.id = data.message_id;
-									}
-									
-									if (data.document_references && assistantMessage) {
-										messageDocumentReferences.set(assistantMessage.id, data.document_references);
-									}
-									
-									streamingMessage = "";
-									assistantMessage = null; // Reset for next message
+								} catch (e) {
+									console.warn("Failed to parse streaming response:", line);
 								}
-							} catch (e) {
-								console.warn("Failed to parse streaming response:", line);
 							}
 						}
 					}
@@ -211,6 +273,7 @@
 			
 			// Reload messages to ensure we have the latest state from the server
 			await loadChatMessages();
+			scrollToBottom();
 
 		} catch (error) {
 			console.error("Error sending message:", error);
@@ -387,7 +450,7 @@
 	async function handleSuggestedPrompt(prompt: string) {
 		await handleSendMessage(
 			new CustomEvent("send", {
-				detail: { content: prompt },
+				detail: { content: prompt, useDeepResearch: false },
 			}),
 		);
 	}
@@ -524,6 +587,17 @@
 	function removeNotification(id: number) {
 		notifications = notifications.filter((n) => n.id !== id);
 	}
+
+	function scrollToBottom() {
+		// Scroll to the bottom of the chat messages container
+		const chatContainer = document.querySelector('.chat-messages-container');
+		if (chatContainer) {
+			chatContainer.scrollTop = chatContainer.scrollHeight;
+		} else {
+			// Fallback: scroll the entire page to bottom
+			window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+		}
+	}
 </script>
 
 <!-- Chat Content -->
@@ -597,7 +671,7 @@
 	{/if}
 
 	<!-- Chat Messages -->
-	<div class="flex-1 overflow-y-auto">
+	<div class="flex-1 overflow-y-auto chat-messages-container">
 		{#if messages.length === 0 && !isLoading && !streamingMessage}
 			<div
 				class="flex items-center justify-center h-full p-8"

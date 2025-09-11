@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 
 settings = get_settings()
-from app.api import chat, tags, document_tags, auth, documents
+from app.api import chat, tags, document_tags, auth, documents, deep_research
 from app.core.scheduler import session_cleanup_scheduler
 import logging
 
@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title=settings.project_name,
     description="SecondBrain AI Assistant API with RAG support",
-    version="1.0.0"
+    version="1.0.0",
+    debug=True
 )
 
 
@@ -102,6 +103,13 @@ app.include_router(
     documents.router,
     prefix=settings.api_v1_str,
     tags=["documents"]
+)
+
+# Deep Research routes
+app.include_router(
+    deep_research.router,
+    prefix=settings.api_v1_str + "/deep-research",
+    tags=["deep-research"]
 )
 
 

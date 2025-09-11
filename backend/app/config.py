@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     azure_openai_endpoint: str
     azure_openai_api_version: str = "2023-12-01-preview"
     azure_openai_deployment_name: str = "gpt-4"
+    azure_mini_deployment_name: str
     azure_openai_embedding_deployment_name: str = "text-embedding-ada-002"
     
     # Database Configuration
