@@ -8,6 +8,7 @@ Create Date: 2025-08-26 12:00:00.000000
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision = 'add_email_verification'
@@ -56,6 +57,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    connection = op.get_bind()
+    inspector = inspect(connection)
+
+    def safe_drop_index(index_name, table_name):
+        indexes = [idx['name'] for idx in inspector.get_indexes(table_name)]
+        if index_name in indexes:
+            op.drop_index(index_name, table_name=table_name)
     # Drop email_resend_tracking table
     op.drop_index(op.f('ix_email_resend_tracking_user_id'), table_name='email_resend_tracking')
     op.drop_table('email_resend_tracking')

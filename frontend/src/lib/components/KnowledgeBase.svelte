@@ -73,6 +73,28 @@
 	let viewMode: "raw" | "pdf" = "raw";
 	let isPdfDocument = false;
 
+	// Placeholder for uploading files
+	let uploadingFiles: { name: string; id: number }[] = [];
+	let nextUploadId = 0;
+
+	// Reactive logic to remove placeholders when documents are loaded
+	$: {
+		if (uploadingFiles.length > 0 && documents.length > 0) {
+			const documentTitles = new Set(documents.map((d) => d.title));
+			const stillUploading = uploadingFiles.filter((file) => {
+				// Check against original name and name without extension
+				const baseName = file.name.includes(".")
+					? file.name.substring(0, file.name.lastIndexOf("."))
+					: file.name;
+				return !documentTitles.has(file.name) && !documentTitles.has(baseName);
+			});
+
+			if (stillUploading.length < uploadingFiles.length) {
+				uploadingFiles = stillUploading;
+			}
+		}
+	}
+
 	// Push notifications
 	let pushNotifications: Array<{
 		id: number;
@@ -554,6 +576,13 @@
 
 		if (validFiles.length === 0) return;
 
+		// Add to uploading files list for placeholder UI
+		const newUploads = validFiles.map((file) => ({
+			name: file.name,
+			id: nextUploadId++,
+		}));
+		uploadingFiles = [...uploadingFiles, ...newUploads];
+
 		uploadLoading = true;
 		uploadedFiles = validFiles;
 
@@ -835,7 +864,6 @@
 				</svg>
 				Upload Document
 			</button>
-
 			<input
 				type="text"
 				placeholder="Search documents..."
@@ -854,10 +882,8 @@
 						class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"
 					></div>
 				</div>
-			{:else if filteredDocuments.length === 0}
-				<div
-					class="text-center py-12 px-4 text-gray-500"
-				>
+			{:else if filteredDocuments.length === 0 && uploadingFiles.length === 0}
+				<div class="text-center py-12 px-4 text-gray-500">
 					<div class="text-4xl mb-3">📚</div>
 					<div class="text-sm font-medium">
 						No documents found
@@ -868,6 +894,32 @@
 					</div>
 				</div>
 			{:else}
+				{#each uploadingFiles as file}
+					<div
+						class="w-full px-4 py-3 text-left border-b border-gray-100 opacity-60 pointer-events-none"
+					>
+						<div class="flex items-start gap-3">
+							<div class="text-xl mt-0.5">
+								📄
+							</div>
+							<div class="flex-1 min-w-0">
+								<div
+									class="font-medium text-sm text-gray-900 truncate"
+								>
+									{file.name}
+								</div>
+								<div
+									class="flex items-center gap-2 mt-1 text-xs text-gray-500"
+								>
+									<div
+										class="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"
+									></div>
+									<span>Uploading...</span>
+								</div>
+							</div>
+						</div>
+					</div>
+				{/each}
 				{#each filteredDocuments as doc}
 					<button
 						on:click={() =>
