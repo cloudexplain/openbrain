@@ -60,32 +60,31 @@ class ChatService:
         return documents
     
     @staticmethod
-    async def get_tag_ids_by_names(db: AsyncSession, tag_names: Set[str], user_id: UUID) -> List[UUID]:
-        """Get tag IDs from tag names for a specific user"""
+    async def get_tag_ids_by_names(db: AsyncSession, tag_names: Set[str]) -> List[UUID]:
+        """Get tag IDs from tag names"""
         if not tag_names:
             return []
-        
+
         # Convert to lowercase for case-insensitive matching
         lower_names = [name.lower() for name in tag_names]
-        
+
         result = await db.execute(
             select(Tag.id).where(
-                Tag.user_id == user_id,
-                Tag.name.in_(tag_names) | 
+                Tag.name.in_(tag_names) |
                 Tag.name.in_(lower_names)
             )
         )
         return list(result.scalars().all())
     
     @staticmethod
-    async def get_document_ids_by_titles(db: AsyncSession, document_titles: Set[str], user_id: UUID) -> List[UUID]:
-        """Get document IDs from document titles for a specific user"""
+    async def get_document_ids_by_titles(db: AsyncSession, document_titles: Set[str]) -> List[UUID]:
+        """Get document IDs from document titles"""
         if not document_titles:
             return []
-        
+
         from app.models.chat import Document
         from sqlalchemy import func, or_
-        
+
         # Build conditions for case-insensitive matching on both title and filename
         conditions = []
         for title in document_titles:
@@ -93,62 +92,60 @@ class ChatService:
                 func.lower(Document.title) == title.lower(),
                 func.lower(Document.filename) == title.lower()
             ])
-        
+
         result = await db.execute(
             select(Document.id).where(
-                Document.user_id == user_id,
                 or_(*conditions)
             )
         )
         return list(result.scalars().all())
     @staticmethod
-    async def create_chat(db: AsyncSession, chat_data: ChatCreate, user_id: UUID) -> Chat:
-        """Create a new chat for a specific user"""
-        db_chat = ChatModel(title=chat_data.title, user_id=user_id)
+    async def create_chat(db: AsyncSession, chat_data: ChatCreate, user_id: UUID = None) -> Chat:
+        """Create a new chat"""
+        db_chat = ChatModel(title=chat_data.title)
         db.add(db_chat)
         await db.commit()
         await db.refresh(db_chat)
         return db_chat
     
     @staticmethod
-    async def get_chat(db: AsyncSession, chat_id: UUID, user_id: UUID) -> Optional[Chat]:
-        """Get a chat by ID with messages for a specific user"""
+    async def get_chat(db: AsyncSession, chat_id: UUID, user_id: UUID = None) -> Optional[Chat]:
+        """Get a chat by ID with messages"""
         result = await db.execute(
             select(ChatModel)
             .options(selectinload(ChatModel.messages))
-            .where(ChatModel.id == chat_id, ChatModel.user_id == user_id)
+            .where(ChatModel.id == chat_id)
         )
         return result.scalar_one_or_none()
     
     @staticmethod
-    async def get_chats(db: AsyncSession, user_id: UUID, limit: int = 50) -> List[ChatListItem]:
-        """Get all chats for a specific user with basic info"""
+    async def get_chats(db: AsyncSession, user_id: UUID = None, limit: int = 50) -> List[ChatListItem]:
+        """Get all chats with basic info"""
         # Get chats with their latest message
         query = """
-        SELECT 
+        SELECT
             c.id,
             c.title,
             c.created_at,
             c.updated_at,
             (
-                SELECT m.content 
-                FROM messages m 
-                WHERE m.chat_id = c.id 
-                ORDER BY m.created_at DESC 
+                SELECT m.content
+                FROM messages m
+                WHERE m.chat_id = c.id
+                ORDER BY m.created_at DESC
                 LIMIT 1
             ) as last_message,
             (
-                SELECT COUNT(*) 
-                FROM messages m 
+                SELECT COUNT(*)
+                FROM messages m
                 WHERE m.chat_id = c.id
             ) as message_count
         FROM chats c
-        WHERE c.user_id = :user_id
         ORDER BY c.updated_at DESC
         LIMIT :limit
         """
-        
-        result = await db.execute(text(query), {"user_id": user_id, "limit": limit})
+
+        result = await db.execute(text(query), {"limit": limit})
         rows = result.fetchall()
         
         return [
@@ -164,13 +161,13 @@ class ChatService:
         ]
     
     @staticmethod
-    async def update_chat(db: AsyncSession, chat_id: UUID, chat_data, user_id: UUID) -> Optional[Chat]:
-        """Update a chat's title and/or messages for a specific user"""
+    async def update_chat(db: AsyncSession, chat_id: UUID, chat_data, user_id: UUID = None) -> Optional[Chat]:
+        """Update a chat's title and/or messages"""
         # Get the chat
         result = await db.execute(
             select(ChatModel)
             .options(selectinload(ChatModel.messages))
-            .where(ChatModel.id == chat_id, ChatModel.user_id == user_id)
+            .where(ChatModel.id == chat_id)
         )
         chat = result.scalar_one_or_none()
         
@@ -222,10 +219,10 @@ class ChatService:
         )
     
     @staticmethod
-    async def delete_chat(db: AsyncSession, chat_id: UUID, user_id: UUID) -> bool:
-        """Delete a chat and all its messages for a specific user"""
+    async def delete_chat(db: AsyncSession, chat_id: UUID, user_id: UUID = None) -> bool:
+        """Delete a chat and all its messages"""
         result = await db.execute(
-            select(ChatModel).where(ChatModel.id == chat_id, ChatModel.user_id == user_id)
+            select(ChatModel).where(ChatModel.id == chat_id)
         )
         chat = result.scalar_one_or_none()
         
@@ -272,7 +269,7 @@ class ChatService:
         db: AsyncSession,
         chat_id: UUID,
         user_message: str,
-        user_id: UUID,
+        user_id: UUID = None,
         use_rag: bool = True,
         rag_limit: int = 5,
         rag_threshold: float = 0.7,
@@ -284,7 +281,7 @@ class ChatService:
     ) -> AsyncGenerator[tuple[str, Optional[UUID]], None]:
         """Generate AI response for a chat message with optional RAG support"""
         # Get chat with messages for context
-        chat = await ChatService.get_chat(db, chat_id, user_id)
+        chat = await ChatService.get_chat(db, chat_id, None)
         if not chat:
             raise ValueError("Chat not found")
         
@@ -297,11 +294,11 @@ class ChatService:
         
         # Extract tags from user message
         tag_names = ChatService.extract_tags_from_message(user_message)
-        tag_ids = await ChatService.get_tag_ids_by_names(db, tag_names, user_id) if tag_names else []
+        tag_ids = await ChatService.get_tag_ids_by_names(db, tag_names) if tag_names else []
         
         # Extract document references from user message
         document_titles = ChatService.extract_document_references_from_message(user_message)
-        document_ids = await ChatService.get_document_ids_by_titles(db, document_titles, user_id) if document_titles else []
+        document_ids = await ChatService.get_document_ids_by_titles(db, document_titles) if document_titles else []
         
         # Perform similarity search to retrieve relevant context if RAG is enabled
         relevant_chunks = []
@@ -309,7 +306,7 @@ class ChatService:
             relevant_chunks = await embedding_service.similarity_search(
                 db=db,
                 query=user_message,
-                user_id=user_id,
+                user_id=None,
                 limit=rag_limit,
                 similarity_threshold=rag_threshold,
                 tag_ids=tag_ids if tag_ids else None,
@@ -616,14 +613,14 @@ Do not end with opt-in questions or hedging closers. Do **not** say the followin
     
     @staticmethod
     async def get_or_create_chat(db: AsyncSession, chat_id: Optional[UUID] = None, title: str = "New Chat", user_id: UUID = None) -> Chat:
-        """Get existing chat or create new one for a specific user"""
+        """Get existing chat or create new one"""
         if chat_id:
-            chat = await ChatService.get_chat(db, chat_id, user_id)
+            chat = await ChatService.get_chat(db, chat_id, None)
             if chat:
                 return chat
-        
+
         # Create new chat
-        return await ChatService.create_chat(db, ChatCreate(title=title), user_id)
+        return await ChatService.create_chat(db, ChatCreate(title=title), None)
     
     @staticmethod
     async def _run_deep_research_background(db: AsyncSession, message_id: UUID, query: str, params: dict):
@@ -665,13 +662,12 @@ Do not end with opt-in questions or hedging closers. Do **not** say the followin
                 await db.commit()
     
     @staticmethod
-    async def get_message_status(db: AsyncSession, message_id: UUID, user_id: UUID) -> Optional[dict]:
+    async def get_message_status(db: AsyncSession, message_id: UUID, user_id: UUID = None) -> Optional[dict]:
         """Get deep research status for a message"""
-        # Get the message and verify it belongs to user's chat
+        # Get the message
         result = await db.execute(
             select(MessageModel)
-            .join(ChatModel, MessageModel.chat_id == ChatModel.id)
-            .where(MessageModel.id == message_id, ChatModel.user_id == user_id)
+            .where(MessageModel.id == message_id)
         )
         message = result.scalar_one_or_none()
         

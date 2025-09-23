@@ -8,9 +8,7 @@ from alembic import context
 # Import your models here
 import pgvector.sqlalchemy  # Required for Vector type in migrations
 from app.models.base import Base
-from app.models.chat import Chat, Message, Document, DocumentChunk
-from app.models.user import User
-from app.models.session import Session
+from app.models.chat import Chat, Message, Document, DocumentChunk, Tag, DocumentTag
 from app.config import get_settings
 
 # this is the Alembic Config object, which provides

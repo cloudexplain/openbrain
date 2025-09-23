@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { authStore } from "$lib/stores/auth";
+	
 
 	function handleSuggestedPrompt(prompt: string) {
 		// This will be handled by creating a new chat
@@ -10,14 +10,7 @@
 
 <!-- Landing Page -->
 <div class="flex flex-col h-full bg-white overflow-hidden relative">
-	<!-- Header -->
-	{#if $authStore.user}
-		<div class="flex justify-end px-6 py-3 border-b border-gray-100 bg-gray-50/50">
-			<div class="flex items-center gap-2 text-sm text-gray-600">
-				<span>Welcome, {$authStore.user.username}</span>
-			</div>
-		</div>
-	{/if}
+	
 
 	<!-- Welcome Content -->
 	<div class="flex-1 flex items-center justify-center p-8">

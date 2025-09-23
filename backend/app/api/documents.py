@@ -9,8 +9,6 @@ import json
 from pathlib import Path
 
 from app.models.database import get_db
-from app.models.user import User
-from app.core.deps import get_current_user
 from app.models.chat import Document, DocumentChunk
 
 router = APIRouter()
@@ -19,13 +17,12 @@ router = APIRouter()
 @router.get("/documents/{document_id}")
 async def get_document(
     document_id: UUID,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get document details with metadata"""
     result = await db.execute(
         select(Document)
-        .where(Document.id == document_id, Document.user_id == current_user.id)
+        .where(Document.id == document_id)
         .options(selectinload(Document.tags))
     )
     document = result.scalar_one_or_none()
@@ -54,18 +51,17 @@ async def get_document(
 async def get_document_chunks(
     document_id: UUID,
     chunk_ids: Optional[str] = Query(None, description="Comma-separated chunk IDs to filter"),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get chunks for a specific document, optionally filtered by chunk IDs"""
-    
+
     # Debug logging
     print(f"🔍 API called with document_id: {document_id}")
     print(f"🔍 API called with chunk_ids parameter: {chunk_ids}")
-    
-    # Verify document ownership
+
+    # Verify document exists
     doc_result = await db.execute(
-        select(Document).where(Document.id == document_id, Document.user_id == current_user.id)
+        select(Document).where(Document.id == document_id)
     )
     document = doc_result.scalar_one_or_none()
     
@@ -123,14 +119,13 @@ async def get_document_chunks(
 @router.get("/documents/{document_id}/file")
 async def get_document_file(
     document_id: UUID,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get the actual file for a document (if it's a file-based document)"""
-    
-    # Get document and verify ownership
+
+    # Get document
     result = await db.execute(
-        select(Document).where(Document.id == document_id, Document.user_id == current_user.id)
+        select(Document).where(Document.id == document_id)
     )
     document = result.scalar_one_or_none()
     
@@ -160,12 +155,11 @@ async def list_documents(
     source_type: Optional[str] = Query(None, description="Filter by source type (file, chat, url)"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """List all documents for the current user"""
-    
-    query = select(Document).where(Document.user_id == current_user.id)
+    """List all documents"""
+
+    query = select(Document)
     
     # Apply source type filter if provided
     if source_type:

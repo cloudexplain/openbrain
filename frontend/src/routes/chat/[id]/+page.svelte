@@ -11,7 +11,6 @@
 	import KnowledgeEditModal from "$lib/components/KnowledgeEditModal.svelte";
 	import Notification from "$lib/components/Notification.svelte";
 	import type { Message, ChatListItem, StreamResponse, DocumentReference } from "$lib/api";
-	import { authStore, authService } from "$lib/stores/auth";
 	import { deepResearchDepth, depthConfigs } from "$lib/stores/deepResearch";
 
 	// Get chat ID from route params
@@ -104,9 +103,7 @@
 			console.log("Loading chat messages for:", chatId);
 
 			// Load chat with messages
-			const response = await fetch(`/api/v1/chats/${chatId}`, {
-				headers: authService.getAuthHeaders(),
-			});
+			const response = await fetch(`/api/v1/chats/${chatId}`);
 
 			console.log("Response status:", response.status);
 
@@ -174,7 +171,6 @@
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					...authService.getAuthHeaders(),
 				},
 				body: JSON.stringify({ 
 					message: trimmedContent,
@@ -298,7 +294,6 @@
 		try {
 			const response = await fetch(`/api/v1/chats/${chatId}/auto-title`, {
 				method: "POST",
-				headers: authService.getAuthHeaders(),
 			});
 
 			if (response.ok) {
@@ -338,7 +333,6 @@
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					...authService.getAuthHeaders(),
 				},
 				body: JSON.stringify(requestBody)
 			});
@@ -365,7 +359,6 @@
 				method: "PUT",
 				headers: {
 					"Content-Type": "application/json",
-					...authService.getAuthHeaders(),
 				},
 				body: JSON.stringify({
 					title: title,
@@ -517,7 +510,6 @@
 
 			const response = await fetch('/api/v1/documents/upload', {
 				method: 'POST',
-				headers: authService.getAuthHeaders(),
 				body: formData
 			});
 
@@ -618,18 +610,6 @@
 				<span>{messages.length} message{messages.length !== 1 ? 's' : ''}</span>
 			</div>
 			<div class="flex items-center gap-2">
-				{#if $authStore.user}
-					<div class="flex items-center gap-2 text-sm text-gray-600">
-						<span>Welcome, {$authStore.user.username}</span>
-						<button
-							on:click={() => authService.logout()}
-							class="text-xs text-gray-500 hover:text-red-600 transition-colors"
-							title="Logout"
-						>
-							Logout
-						</button>
-					</div>
-				{/if}
 				<button
 					on:click={handleSaveToKnowledge}
 					class="flex items-center gap-2 px-3 py-1.5 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors duration-200"
@@ -652,22 +632,6 @@
 				</button>
 			</div>
 		</div>
-	{:else}
-		<!-- Show logout even when no chat is active -->
-		{#if $authStore.user}
-			<div class="flex justify-end px-6 py-3 border-b border-gray-100 bg-gray-50/50">
-				<div class="flex items-center gap-2 text-sm text-gray-600">
-					<span>Welcome, {$authStore.user.username}</span>
-					<button
-						on:click={() => authService.logout()}
-						class="text-xs text-gray-500 hover:text-red-600 transition-colors"
-						title="Logout"
-					>
-						Logout
-					</button>
-				</div>
-			</div>
-		{/if}
 	{/if}
 
 	<!-- Chat Messages -->

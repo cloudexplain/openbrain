@@ -7,8 +7,6 @@ from uuid import UUID
 
 from app.models.database import get_db
 from app.models.chat import Document, Tag, DocumentTag
-from app.models.user import User
-from app.core.deps import get_current_user
 from app.schemas.tag import DocumentTagAdd, DocumentTagResponse, Tag as TagSchema
 
 router = APIRouter(prefix="/documents", tags=["document-tags"])
@@ -17,20 +15,14 @@ router = APIRouter(prefix="/documents", tags=["document-tags"])
 @router.get("/{document_id}/tags", response_model=DocumentTagResponse)
 async def get_document_tags(
     document_id: UUID,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get all tags for a specific document owned by the current user."""
-    # Get document with tags, ensuring it belongs to current user
+    # Get document with tags
     result = await db.execute(
         select(Document)
         .options(selectinload(Document.tags))
-        .where(
-            and_(
-                Document.id == document_id,
-                Document.user_id == current_user.id
-            )
-        )
+        .where(Document.id == document_id)
     )
     document = result.scalar_one_or_none()
     
@@ -47,37 +39,26 @@ async def get_document_tags(
 async def add_document_tags(
     document_id: UUID,
     tag_data: DocumentTagAdd,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Add tags to a document owned by the current user."""
-    # Check document exists and belongs to current user
+    # Check document exists
     doc_result = await db.execute(
-        select(Document).where(
-            and_(
-                Document.id == document_id,
-                Document.user_id == current_user.id
-            )
-        )
+        select(Document).where(Document.id == document_id)
     )
     document = doc_result.scalar_one_or_none()
     
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    # Verify all tags exist and belong to current user
+    # Verify all tags exist
     tag_result = await db.execute(
-        select(Tag).where(
-            and_(
-                Tag.id.in_(tag_data.tag_ids),
-                Tag.user_id == current_user.id
-            )
-        )
+        select(Tag).where(Tag.id.in_(tag_data.tag_ids))
     )
     tags = tag_result.scalars().all()
     
     if len(tags) != len(tag_data.tag_ids):
-        raise HTTPException(status_code=400, detail="One or more tags not found or don't belong to you")
+        raise HTTPException(status_code=400, detail="One or more tags not found")
     
     # Get existing tags for this document
     existing_result = await db.execute(
@@ -111,29 +92,19 @@ async def add_document_tags(
 async def remove_document_tag(
     document_id: UUID,
     tag_id: UUID,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Remove a tag from a document owned by the current user."""
-    # First verify document and tag belong to current user
+    # Verify document exists
     doc_result = await db.execute(
-        select(Document).where(
-            and_(
-                Document.id == document_id,
-                Document.user_id == current_user.id
-            )
-        )
+        select(Document).where(Document.id == document_id)
     )
     if not doc_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Document not found")
     
+    # Verify tag exists
     tag_result = await db.execute(
-        select(Tag).where(
-            and_(
-                Tag.id == tag_id,
-                Tag.user_id == current_user.id
-            )
-        )
+        select(Tag).where(Tag.id == tag_id)
     )
     if not tag_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Tag not found")
@@ -165,38 +136,27 @@ async def remove_document_tag(
 async def set_document_tags(
     document_id: UUID,
     tag_data: DocumentTagAdd,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Replace all tags for a document owned by the current user (complete replacement)."""
-    # Check document exists and belongs to current user
+    # Check document exists
     doc_result = await db.execute(
-        select(Document).where(
-            and_(
-                Document.id == document_id,
-                Document.user_id == current_user.id
-            )
-        )
+        select(Document).where(Document.id == document_id)
     )
     document = doc_result.scalar_one_or_none()
     
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    # Verify all new tags exist and belong to current user
+    # Verify all new tags exist
     if tag_data.tag_ids:
         tag_result = await db.execute(
-            select(Tag).where(
-                and_(
-                    Tag.id.in_(tag_data.tag_ids),
-                    Tag.user_id == current_user.id
-                )
-            )
+            select(Tag).where(Tag.id.in_(tag_data.tag_ids))
         )
         tags = tag_result.scalars().all()
         
         if len(tags) != len(tag_data.tag_ids):
-            raise HTTPException(status_code=400, detail="One or more tags not found or don't belong to you")
+            raise HTTPException(status_code=400, detail="One or more tags not found")
     
     # Remove all existing tags
     await db.execute(

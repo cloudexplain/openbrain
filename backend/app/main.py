@@ -3,8 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 
 settings = get_settings()
-from app.api import chat, tags, document_tags, auth, documents, deep_research
-from app.core.scheduler import session_cleanup_scheduler
+from app.api import chat, tags, document_tags, documents, deep_research
 import logging
 
 # Configure logging
@@ -22,23 +21,15 @@ app = FastAPI(
 # Application lifecycle events
 @app.on_event("startup")
 async def startup_event():
-    """Initialize background tasks on application startup"""
+    """Initialize application on startup"""
     logger.info("Starting SecondBrain API...")
-    
-    # Start session cleanup scheduler
-    await session_cleanup_scheduler.start()
-    
     logger.info("Application startup complete")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Clean up background tasks on application shutdown"""
+    """Clean up on application shutdown"""
     logger.info("Shutting down SecondBrain API...")
-    
-    # Stop session cleanup scheduler
-    await session_cleanup_scheduler.stop()
-    
     logger.info("Application shutdown complete")
 
 # Debug: Log CORS settings
@@ -70,12 +61,6 @@ async def log_requests(request: Request, call_next):
     return response
 
 # Include routers
-# Authentication routes
-app.include_router(
-    auth.router,
-    prefix=settings.api_v1_str + "/auth",
-    tags=["auth"]
-)
 
 # Can be called via /api/v1/chat
 app.include_router(

@@ -3,7 +3,6 @@
 	import DocumentReferences from './DocumentReferences.svelte';
 	import MathRenderer from './MathRenderer.svelte';
 	import type { DocumentReference } from '$lib/api';
-	import { authService } from '$lib/stores/auth';
 	import { goto } from '$app/navigation';
 
 	let { message, documentReferences = [] } = $props<{
@@ -58,8 +57,7 @@
 			const response = await fetch(`/api/v1/messages/${message.id}`, {
 				method: 'DELETE',
 				headers: {
-					'Content-Type': 'application/json',
-					...authService.getAuthHeaders()
+					'Content-Type': 'application/json'
 				}
 			});
 

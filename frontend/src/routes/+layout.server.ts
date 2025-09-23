@@ -1,21 +1,9 @@
 import type { LayoutServerLoad } from './$types';
 // Server-side code - runs in the SvelteKit server
 import type { PageServerLoad, Actions } from './$types';
-import { fail, redirect } from '@sveltejs/kit';
-import type { Cookies } from '@sveltejs/kit';
-import { getAuthHeaders } from '../lib/utils';
 
 export const load: LayoutServerLoad = async ({ fetch, url }) => {
-	// Only load chats for authenticated routes (not login/signup/verify-email)
-	const publicRoutes = ['/login', '/signup', '/verify-email'];
-	const isPublicRoute = publicRoutes.includes(url.pathname);
-	
-	if (isPublicRoute) {
-		return {
-			chats: [],
-			documents: []
-		};
-	}
+	// Load chats and documents for all routes
 
 	try {
 		// Load chats for sidebar
@@ -69,7 +57,7 @@ const actions: Actions = {
 			console.log("Calling upload document to", 'http://backend:8000/api/v1/documents/upload');
 			const response = await fetch('http://backend:8000/api/v1/documents/upload', {
 				method: 'POST',
-				headers: getAuthHeaders(cookies),
+				headers: {},
 				body: backendFormData
 			});
 			
@@ -111,7 +99,7 @@ const actions: Actions = {
 			console.log("Calling upload multiple documents to", 'http://backend:8000/api/v1/documents/upload-multiple');
 			const response = await fetch('http://backend:8000/api/v1/documents/upload-multiple', {
 				method: 'POST',
-				headers: getAuthHeaders(cookies),
+				headers: {},
 				body: backendFormData
 			});
 			
@@ -137,7 +125,7 @@ const actions: Actions = {
 		
 		try {
 			const response = await fetch(`http://backend:8000/api/v1/documents/${documentId}`, {
-				headers: getAuthHeaders(cookies)
+				headers: {}
 			});
 			
 			if (!response.ok) {
@@ -159,7 +147,7 @@ const actions: Actions = {
 		try {
 			const response = await fetch(`http://backend:8000/api/v1/documents/${documentId}`, {
 				method: 'DELETE',
-				headers: getAuthHeaders(cookies)
+				headers: {}
 			});
 			
 			if (!response.ok) {
@@ -185,7 +173,6 @@ const actions: Actions = {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
-					...getAuthHeaders(cookies)
 				},
 				body: JSON.stringify({
 					message,
@@ -221,7 +208,7 @@ const actions: Actions = {
 		
 		try {
 			const response = await fetch(`http://backend:8000/api/v1/chats/${chatId}`, {
-				headers: getAuthHeaders(cookies)
+				headers: {}
 			});
 			
 			if (!response.ok) {
@@ -246,7 +233,7 @@ const actions: Actions = {
 		try {
 			const response = await fetch(`http://backend:8000/api/v1/chats/${chatId}`, {
 				method: 'DELETE',
-				headers: getAuthHeaders(cookies)
+				headers: {}
 			});
 			
 			if (!response.ok) {
@@ -269,7 +256,7 @@ const actions: Actions = {
 		
 		try {
 			const response = await fetch(`http://backend:8000/api/v1/documents/${documentId}/chunks`, {
-				headers: getAuthHeaders(cookies)
+				headers: {}
 			});
 			
 			if (!response.ok) {
@@ -302,7 +289,6 @@ const actions: Actions = {
 				method: 'PUT',
 				headers: {
 					'Content-Type': 'application/json',
-					...getAuthHeaders(cookies)
 				},
 				body: JSON.stringify({
 					title,
@@ -354,7 +340,6 @@ const actions: Actions = {
 					method: 'POST',
 					headers: {
 						'Content-Type': 'application/json',
-						...getAuthHeaders(cookies)
 					},
 					body: JSON.stringify(body)
 				});
@@ -362,7 +347,7 @@ const actions: Actions = {
 				// Simple save without custom content
 				response = await fetch(`http://backend:8000/api/v1/chats/${chatId}/save-to-knowledge`, {
 					method: 'POST',
-					headers: getAuthHeaders(cookies)
+					headers: {}
 				});
 			}
 			

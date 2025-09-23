@@ -11,7 +11,6 @@
 	import TagSelector from "./TagSelector.svelte";
 	import TipTapEditor from "./TipTapEditor.svelte";
 	import { invalidateAll } from "$app/navigation";
-	import { authService } from "$lib/stores/auth";
 
 	const dispatch = createEventDispatcher();
 
@@ -329,7 +328,6 @@
 
 			const response = await fetch(chunkUrl, {
 				headers: {
-					Authorization: `Bearer ${localStorage.getItem("access_token")}`,
 					"Content-Type": "application/json",
 				},
 			});
@@ -604,7 +602,6 @@
 					"/api/v1/documents/upload",
 					{
 						method: "POST",
-						headers: authService.getAuthHeaders(),
 						body: formData,
 					},
 				);
@@ -645,7 +642,6 @@
 								"/api/v1/documents/upload",
 								{
 									method: "POST",
-									headers: authService.getAuthHeaders(),
 									body: formData,
 								},
 							);

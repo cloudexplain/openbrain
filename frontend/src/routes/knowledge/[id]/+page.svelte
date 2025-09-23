@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { page } from "$app/stores";
 	import { onMount } from "svelte";
-	import { authService } from "$lib/stores/auth";
 	import PDFViewer from "$lib/components/PDFViewer.svelte";
 
 	let { data } = $props();
@@ -71,9 +70,7 @@
 				docUrl,
 			);
 
-			const response = await fetch(docUrl, {
-				headers: authService.getAuthHeaders(),
-			});
+			const response = await fetch(docUrl);
 
 			console.log(
 				"🔍 Knowledge page: Document response status:",
@@ -161,9 +158,7 @@
 				allChunksUrl,
 			);
 
-			const response = await fetch(allChunksUrl, {
-				headers: authService.getAuthHeaders(),
-			});
+			const response = await fetch(allChunksUrl);
 
 			if (response.ok) {
 				const data = await response.json();

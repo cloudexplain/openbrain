@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount, createEventDispatcher } from "svelte";
-	import { authService } from "$lib/stores/auth";
 	import { browser } from "$app/environment";
 
 	let pdfjsLib: any = null;
@@ -87,10 +86,9 @@
 		try {
 			error = null;
 
-			// Load the PDF document with authentication headers
+			// Load the PDF document
 			const loadingTask = pdfjsLib.getDocument({
 				url: documentUrl,
-				httpHeaders: authService.getAuthHeaders(),
 			});
 
 			pdfDoc = await loadingTask.promise;
@@ -121,9 +119,7 @@
 			// Load ALL chunks for the document (not filtered)
 			const chunkUrl = `/api/v1/documents/${documentId}/chunks`;
 
-			const response = await fetch(chunkUrl, {
-				headers: authService.getAuthHeaders(),
-			});
+			const response = await fetch(chunkUrl);
 
 			if (response.ok) {
 				const data = await response.json();

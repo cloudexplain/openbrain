@@ -1,9 +1,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.core.deps import get_current_user, get_db
-from app.models.user import User as UserModel
+from app.models.database import get_db
 from app.schemas.deep_research import DeepResearchRequest, DeepResearchResponse
 from app.schemas.chat import MessageCreate
 from app.services.deep_research_service import DeepResearchService
@@ -14,8 +12,7 @@ router = APIRouter()
 @router.post("/", response_model=DeepResearchResponse)
 async def run_deep_research(
     request: DeepResearchRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Initiates a deep research task for the given query.

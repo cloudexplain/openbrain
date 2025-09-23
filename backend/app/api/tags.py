@@ -7,8 +7,6 @@ from uuid import UUID
 
 from app.models.database import get_db
 from app.models.chat import Tag, Document, DocumentTag
-from app.models.user import User
-from app.core.deps import get_current_user
 from app.schemas.tag import (
     TagCreate, TagUpdate, Tag as TagSchema, 
     TagList, DocumentTagAdd, DocumentTagResponse
@@ -22,24 +20,21 @@ async def get_tags(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     search: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all tags for the current user with optional search and pagination."""
+    """Get all tags with optional search and pagination."""
     query = select(
         Tag,
         func.count(DocumentTag.document_id).label('document_count')
     ).outerjoin(
         DocumentTag, Tag.id == DocumentTag.tag_id
-    ).where(
-        Tag.user_id == current_user.id
     ).group_by(Tag.id)
     
     if search:
         query = query.where(Tag.name.ilike(f"%{search}%"))
     
     # Get total count
-    count_query = select(func.count()).select_from(Tag).where(Tag.user_id == current_user.id)
+    count_query = select(func.count()).select_from(Tag)
     if search:
         count_query = count_query.where(Tag.name.ilike(f"%{search}%"))
     
@@ -63,23 +58,19 @@ async def get_tags(
 @router.post("", response_model=TagSchema)
 async def create_tag(
     tag_create: TagCreate,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new tag for the current user."""
     # Check if tag with same name exists for this user
     existing = await db.execute(
         select(Tag).where(
-            and_(
-                func.lower(Tag.name) == func.lower(tag_create.name),
-                Tag.user_id == current_user.id
-            )
+            func.lower(Tag.name) == func.lower(tag_create.name)
         )
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Tag with this name already exists")
     
-    tag = Tag(**tag_create.model_dump(), user_id=current_user.id)
+    tag = Tag(**tag_create.model_dump())
     db.add(tag)
     await db.commit()
     await db.refresh(tag)
@@ -94,7 +85,6 @@ async def create_tag(
 @router.get("/{tag_id}", response_model=TagSchema)
 async def get_tag(
     tag_id: UUID,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get a specific tag by ID for the current user."""
@@ -103,11 +93,6 @@ async def get_tag(
         func.count(DocumentTag.document_id).label('document_count')
     ).outerjoin(
         DocumentTag, Tag.id == DocumentTag.tag_id
-    ).where(
-        and_(
-            Tag.id == tag_id,
-            Tag.user_id == current_user.id
-        )
     ).group_by(Tag.id)
     
     result = await db.execute(query)
@@ -127,16 +112,10 @@ async def get_tag(
 async def update_tag(
     tag_id: UUID,
     tag_update: TagUpdate,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Update a tag for the current user."""
-    result = await db.execute(select(Tag).where(
-        and_(
-            Tag.id == tag_id,
-            Tag.user_id == current_user.id
-        )
-    ))
+    result = await db.execute(select(Tag).where(Tag.id == tag_id))
     tag = result.scalar_one_or_none()
     
     if not tag:
@@ -148,7 +127,6 @@ async def update_tag(
             select(Tag).where(
                 and_(
                     func.lower(Tag.name) == func.lower(tag_update.name),
-                    Tag.user_id == current_user.id,
                     Tag.id != tag_id
                 )
             )
@@ -178,16 +156,10 @@ async def update_tag(
 @router.delete("/{tag_id}")
 async def delete_tag(
     tag_id: UUID,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete a tag for the current user. This will also remove all document associations."""
-    result = await db.execute(select(Tag).where(
-        and_(
-            Tag.id == tag_id,
-            Tag.user_id == current_user.id
-        )
-    ))
+    result = await db.execute(select(Tag).where(Tag.id == tag_id))
     tag = result.scalar_one_or_none()
     
     if not tag:
@@ -204,17 +176,11 @@ async def get_tag_documents(
     tag_id: UUID,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get all documents with a specific tag for the current user."""
-    # Check tag exists and belongs to current user
-    tag_result = await db.execute(select(Tag).where(
-        and_(
-            Tag.id == tag_id,
-            Tag.user_id == current_user.id
-        )
-    ))
+    # Check tag exists
+    tag_result = await db.execute(select(Tag).where(Tag.id == tag_id))
     tag = tag_result.scalar_one_or_none()
     
     if not tag:
@@ -224,10 +190,7 @@ async def get_tag_documents(
     query = select(Document).join(
         DocumentTag, Document.id == DocumentTag.document_id
     ).where(
-        and_(
-            DocumentTag.tag_id == tag_id,
-            Document.user_id == current_user.id
-        )
+        DocumentTag.tag_id == tag_id
     ).options(
         selectinload(Document.tags)
     ).offset(skip).limit(limit)

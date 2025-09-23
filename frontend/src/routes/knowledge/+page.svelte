@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { authService } from '$lib/stores/auth';
 	import { goto } from '$app/navigation';
 	
 	let documents: any[] = [];
@@ -18,9 +17,7 @@
 			error = null;
 			
 			console.log('Loading documents from /api/v1/documents...');
-			const response = await fetch('/api/v1/documents', {
-				headers: authService.getAuthHeaders()
-			});
+			const response = await fetch('/api/v1/documents');
 			
 			console.log('Response status:', response.status);
 			console.log('Response headers:', response.headers);

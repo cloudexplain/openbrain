@@ -4,7 +4,6 @@
 	import { goto } from '$app/navigation';
 	import favicon from '$lib/assets/favicon.svg';
 	import '../app.pcss';
-	import { authStore, authService } from '$lib/stores/auth';
 	import Sidebar from "$lib/components/Sidebar.svelte";
 	import KnowledgeBase from "$lib/components/KnowledgeBase.svelte";
 	import TagManager from "$lib/components/TagManager.svelte";
@@ -13,8 +12,6 @@
 
 	let { children, data } = $props();
 
-	// Public routes that don't require authentication
-	const publicRoutes = ['/login', '/signup', '/verify-email'];
 	
 	// Layout state
 	let chats = $state(data?.chats || []);
@@ -32,24 +29,6 @@
 	}> = [];
 	let notificationId = 0;
 
-	onMount(async () => {
-		// Initialize auth service
-		await authService.init();
-
-		// Subscribe to auth changes
-		authStore.subscribe((auth) => {
-			if (!auth.isLoading) {
-				const currentPath = $page.url.pathname;
-				const isPublicRoute = publicRoutes.includes(currentPath);
-				
-				if (!auth.isAuthenticated && !isPublicRoute) {
-					goto('/login');
-				} else if (auth.isAuthenticated && currentPath === '/login') {
-					goto('/');
-				}
-			}
-		});
-	});
 
 	function showNotification(
 		message: string,
@@ -74,7 +53,6 @@
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					...authService.getAuthHeaders()
 				},
 				body: JSON.stringify({
 					title: "New Chat",
@@ -115,7 +93,7 @@
 			// Delete the chat from the server
 			const response = await fetch(`/api/v1/chats/${chatId}`, {
 				method: "DELETE",
-				headers: authService.getAuthHeaders()
+				headers: {}
 			});
 
 			if (!response.ok) {
@@ -163,9 +141,8 @@
 	}
 
 	// Reactive statements using Svelte 5 syntax
-	let isPublicRoute = $derived(publicRoutes.includes($page.url.pathname));
-	// Show full layout unless we're on a public route (login, signup, etc.)
-	let showFullLayout = $derived(!isPublicRoute);
+	// Always show full layout now that authentication is removed
+	let showFullLayout = $derived(true);
 
 	// Effect to update data from server when it changes
 	$effect(() => {
@@ -203,8 +180,6 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-{#if showFullLayout}
-	<!-- Full layout for authenticated users -->
 	<main class="flex h-screen bg-gray-100">
 		<!-- Sidebar -->
 		<div class="flex-shrink-0 {sidebarMinimized ? 'w-16' : 'w-80'} transition-all duration-300 ease-in-out">
@@ -250,7 +225,3 @@
 			{/each}
 		</div>
 	</main>
-{:else}
-	<!-- Simple layout for public pages -->
-	{@render children?.()}
-{/if}
