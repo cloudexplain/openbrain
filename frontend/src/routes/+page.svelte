@@ -96,7 +96,9 @@
 		try {
 			const response = await fetch(`/api/v1/chats/${currentChatId}/auto-update-title`, {
 				method: 'POST',
-				headers: authService.getAuthHeaders()
+				headers: {
+					'Content-Type': 'application/json'
+				}
 			});
 			
 			if (response.ok) {
@@ -132,8 +134,7 @@
 				const response = await fetch(`/api/v1/chats/${currentChatId}`, {
 					method: 'PATCH',
 					headers: {
-						'Content-Type': 'application/json',
-						...authService.getAuthHeaders()
+						'Content-Type': 'application/json'
 					},
 					body: JSON.stringify({
 						title: newTitle.trim()
@@ -578,9 +579,7 @@
 				{
 					method: "POST",
 					headers: {
-						"Content-Type":
-							"application/json",
-						...authService.getAuthHeaders()
+						"Content-Type": "application/json"
 					},
 					body: JSON.stringify(body),
 				},

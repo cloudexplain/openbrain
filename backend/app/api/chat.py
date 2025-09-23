@@ -224,7 +224,7 @@ async def save_edited_chat_to_knowledge(
         from sqlalchemy import select
         
         chat_result = await db.execute(
-            select(Chat).where(Chat.id == chat_id, Chat.user_id == current_user.id)
+            select(Chat).where(Chat.id == chat_id)
         )
         chat = chat_result.scalar_one_or_none()
         
@@ -355,7 +355,6 @@ async def save_edited_chat_to_knowledge(
 @router.post("/chats/{chat_id}/auto-update-title")
 async def auto_update_chat_title(
     chat_id: UUID,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Automatically generate and update chat title based on recent messages"""
@@ -368,7 +367,7 @@ async def auto_update_chat_title(
         # Get the chat with its messages
         result = await db.execute(
             select(Chat)
-            .where(Chat.id == chat_id, Chat.user_id == current_user.id)
+            .where(Chat.id == chat_id)
             .options(selectinload(Chat.messages))
         )
         chat = result.scalar_one_or_none()
@@ -458,7 +457,6 @@ The title should be concise (3-7 words), descriptive, and capture the main topic
 async def update_chat(
     chat_id: UUID,
     request: dict,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Update chat properties (like title)"""
@@ -468,7 +466,7 @@ async def update_chat(
     try:
         # Get the chat
         result = await db.execute(
-            select(Chat).where(Chat.id == chat_id, Chat.user_id == current_user.id)
+            select(Chat).where(Chat.id == chat_id)
         )
         chat = result.scalar_one_or_none()
         
