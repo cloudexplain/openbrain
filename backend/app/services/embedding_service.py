@@ -308,7 +308,6 @@ class EmbeddingService:
         file_path: str,
         original_filename: str,
         file_type: str,
-        user_id: str
     ) -> Tuple[UUID, int]:
         """Process an uploaded document file and store it in the knowledge base"""
         from sqlalchemy import select
@@ -321,9 +320,10 @@ class EmbeddingService:
         
         # Create document record
         document_id = uuid4()
+
+        # No user management for uploaded files
         document = Document(
             id=document_id,
-            user_id=UUID(user_id),
             title=original_filename or f"Uploaded Document {document_id}",
             source_type="file",
             source_id=str(document_id),

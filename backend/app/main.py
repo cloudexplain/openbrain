@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
+from app.models.database import dispose_db_engine # Import the dispose function
 
 settings = get_settings()
 from app.api import chat, tags, document_tags, documents, deep_research
@@ -30,6 +31,7 @@ async def startup_event():
 async def shutdown_event():
     """Clean up on application shutdown"""
     logger.info("Shutting down SecondBrain API...")
+    await dispose_db_engine() # Dispose of the database engine
     logger.info("Application shutdown complete")
 
 # Debug: Log CORS settings

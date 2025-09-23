@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 import json
 from pathlib import Path
@@ -157,9 +157,17 @@ async def list_documents(
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db)
 ):
-    """List all documents"""
+    """List all documents with chunk counts"""
 
-    query = select(Document)
+    # Query to get documents and their chunk counts
+    query = (
+        select(
+            Document,
+            func.count(DocumentChunk.id).label("chunk_count")
+        )
+        .outerjoin(DocumentChunk, Document.id == DocumentChunk.document_id)
+        .group_by(Document.id)
+    )
     
     # Apply source type filter if provided
     if source_type:
@@ -169,11 +177,11 @@ async def list_documents(
     query = query.order_by(Document.created_at.desc()).offset(offset).limit(limit)
     
     result = await db.execute(query)
-    documents = result.scalars().all()
+    documents_with_counts = result.all()
     
     # Format response
     docs_data = []
-    for doc in documents:
+    for doc, chunk_count in documents_with_counts:
         metadata = json.loads(doc.document_metadata) if doc.document_metadata else {}
         
         docs_data.append({
@@ -183,11 +191,20 @@ async def list_documents(
             "filename": doc.filename,
             "file_type": doc.file_type,
             "created_at": doc.created_at.isoformat() if doc.created_at else None,
-            "metadata": metadata
+            "metadata": metadata,
+            "chunk_count": chunk_count
         })
     
+    # Get total count for pagination
+    total_query = select(func.count(Document.id))
+    if source_type:
+        total_query = total_query.where(Document.source_type == source_type)
+    
+    total_result = await db.execute(total_query)
+    total = total_result.scalar_one()
+    
     return {
-        "total": len(docs_data),
+        "total": total,
         "offset": offset,
         "limit": limit,
         "documents": docs_data

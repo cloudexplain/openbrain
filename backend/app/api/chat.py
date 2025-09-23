@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Form
 from fastapi.responses import StreamingResponse, FileResponse
@@ -784,43 +784,56 @@ async def update_document_chunks(
         raise HTTPException(status_code=500, detail=f"Failed to update document: {str(e)}")
 
 
+import logging # Import logging module
+
 async def process_document_background(
     file_path: str,
     original_filename: str,
     file_type: str,
     upload_id: str,
-    user_id: str
 ):
     """Background task to process uploaded document"""
     from app.models.database import create_session_local
     
+    # Configure logging for this background task
+    logger = logging.getLogger(__name__)
+
+    session_local = None
+    engine = None
     try:
         # Create a new database session for the background task
         session_local, engine = create_session_local()
         async with session_local() as db:
             try:
+                logger.info(f"process_document_background called with file_path={file_path}, upload_id={upload_id}")
                 # Process the document using the embedding service
                 document_id, chunks_created = await embedding_service.process_uploaded_document(
                     db=db,
                     file_path=file_path,
                     original_filename=original_filename,
                     file_type=file_type,
-                    user_id=user_id
                 )
                 
                 # Store success status (you could store this in Redis or a status table)
-                print(f"Successfully processed document: {document_id}, created {chunks_created} chunks")
+                logger.info(f"Successfully processed document: {document_id}, created {chunks_created} chunks")
                 
+            except Exception as e:
+                # Log the error but do not re-raise to prevent worker crash
+                logger.error(f"Failed to process document {original_filename} (upload_id: {upload_id}): {str(e)}", exc_info=True)
+                # Clean up file if processing failed
+                if Path(file_path).exists():
+                    Path(file_path).unlink()
             finally:
-                # Make sure to dispose of the engine
-                await engine.dispose()
+                # Make sure to dispose of the engine if it was created
+                if engine:
+                    await engine.dispose()
             
     except Exception as e:
+        # Catch exceptions during session creation or engine disposal
+        logger.error(f"Critical error in process_document_background for {original_filename} (upload_id: {upload_id}): {str(e)}", exc_info=True)
         # Clean up file if processing failed
         if Path(file_path).exists():
             Path(file_path).unlink()
-        print(f"Failed to process document: {str(e)}")
-        raise
 
 
 @router.post("/documents/upload")
@@ -872,8 +885,7 @@ async def upload_document(
             str(file_path),
             file.filename,
             file.content_type,
-            upload_id,
-            str(None)
+            upload_id
         )
         
         # Return immediately with upload ID
@@ -947,8 +959,7 @@ async def upload_multiple_documents(
                 str(file_path),
                 file.filename,
                 file.content_type,
-                upload_id,
-                str(None)
+                upload_id
             )
             
             upload_results.append({
@@ -1204,6 +1215,7 @@ Conversation:
 Please respond with just the summary, no additional formatting."""
         
         # Generate summary using the AI service
+        from app.services.azure_openai import azure_openai_service
         messages = [
             {"role": "system", "content": "You are a helpful assistant that creates concise, informative summaries of conversations."},
             {"role": "user", "content": summary_prompt}
