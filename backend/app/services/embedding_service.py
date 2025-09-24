@@ -15,6 +15,7 @@ from pathlib import Path
 
 from app.config import get_settings
 from app.models.chat import Chat, Message, Document, DocumentChunk
+from app.services.embedding_utils import resize_embedding_and_maybe_reembed
 
 logger = logging.getLogger(__name__)
 
@@ -174,9 +175,9 @@ class EmbeddingService:
         
         return result_chunks
     
-    def process_chat_for_knowledge(
-        self, 
-        db: AsyncSession, 
+    async def process_chat_for_knowledge(
+        self,
+        db: AsyncSession,
         chat: Chat
     ) -> Tuple[Document, List[DocumentChunk]]:
         """
@@ -210,7 +211,7 @@ class EmbeddingService:
         document_chunks = []
         for i, ((content, message_ids, metadata), embedding) in enumerate(zip(chunks, embeddings)):
             token_count = self.count_tokens(content)
-            
+
             # Enhanced metadata for chat chunks
             chunk_metadata = {
                 **metadata,
@@ -218,12 +219,31 @@ class EmbeddingService:
                 "source_type": "chat",
                 "chat_id": str(chat.id)
             }
-            
+
+            # Handle embedding dimension adjustment
+            settings = get_settings()
+            target_dim = settings.embedding_dim or 1536
+            current_dim = len(embedding) if embedding else 0
+
+            # Generate a temporary doc_id for dimension handling
+            temp_doc_id = str(uuid4())
+
+            # Resize embedding if needed (will be updated later when DocumentChunk has real ID)
+            adjusted_embedding = await resize_embedding_and_maybe_reembed(
+                text=content,
+                current_vec=embedding,
+                current_dim=current_dim,
+                target_dim=target_dim,
+                doc_id=temp_doc_id
+            )
+
             document_chunk = DocumentChunk(
                 content=content,
                 chunk_index=i,
                 token_count=token_count,
-                embedding=embedding,
+                embedding=adjusted_embedding,
+                embedding_model=settings.embedding_model_resolved,
+                embedding_dim=target_dim,
                 chunk_metadata=json.dumps(chunk_metadata),
                 summary=None  # Could add summarization later
             )
@@ -419,14 +439,32 @@ class EmbeddingService:
                         "page_char_count": len(page_text)
                     })
                 
+                # Handle embedding dimension adjustment
+                settings = get_settings()
+                target_dim = settings.embedding_dim or 1536
+                current_dim = len(embedding) if embedding else 0
+
+                chunk_id = uuid4()
+
+                # Resize embedding if needed
+                adjusted_embedding = await resize_embedding_and_maybe_reembed(
+                    text=chunk_content,
+                    current_vec=embedding,
+                    current_dim=current_dim,
+                    target_dim=target_dim,
+                    doc_id=str(chunk_id)
+                )
+
                 # Create chunk object
                 chunk = DocumentChunk(
-                    id=uuid4(),
+                    id=chunk_id,
                     document_id=document_id,
                     content=chunk_content,
                     chunk_index=global_chunk_index,
                     token_count=token_count,
-                    embedding=embedding,
+                    embedding=adjusted_embedding,
+                    embedding_model=settings.embedding_model_resolved,
+                    embedding_dim=target_dim,
                     chunk_metadata=json.dumps(chunk_metadata)
                 )
                 chunk_objects.append(chunk)

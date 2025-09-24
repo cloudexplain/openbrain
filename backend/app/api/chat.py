@@ -205,7 +205,7 @@ async def save_chat_to_knowledge(
     
     try:
         # Process the chat into unified document/chunks
-        chat_document, document_chunks = embedding_service.process_chat_for_knowledge(db, chat)
+        chat_document, document_chunks = await embedding_service.process_chat_for_knowledge(db, chat)
         
         if not chat_document or not document_chunks:
             raise HTTPException(status_code=400, detail="No chunks could be generated from this chat")

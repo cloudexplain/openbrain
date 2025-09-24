@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.models.database import dispose_db_engine # Import the dispose function
 from app.services.langchain import LangchainOllamaService
-# from app.services.reembed_queue import start_worker
+from app.services.reembed_queue import start_worker
 from app.config import Settings
 
 settings = get_settings()
@@ -48,11 +48,11 @@ async def startup_events():
     logger.info("Using embedding model=%s dim=%s", settings.embedding_model_resolved, settings.embedding_dim)
 
     # start reembed worker
-    # try:
-    #     start_worker(loop)
-    #     logger.info("Reembed worker started")
-    # except Exception as e:
-    #     logger.warning("Could not start reembed worker: %s", e)
+    try:
+        start_worker(loop)
+        logger.info("Reembed worker started")
+    except Exception as e:
+        logger.warning("Could not start reembed worker: %s", e)
 
 
 
