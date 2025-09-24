@@ -140,6 +140,24 @@ class LangchainOllamaService:
         logger.error("Embedding requests all failed: %s", last_exc)
         raise last_exc or RuntimeError("Embedding request failed")
 
+    def get_embedding_dimension(self) -> int:
+        """
+        Get the dimension of vectors from the embedding model by making a test embedding call.
+        """
+        test_text = "test"
+        try:
+            embedding = self.embed(test_text)
+            return len(embedding)
+        except Exception as e:
+            logger.error("Failed to get embedding dimension: %s", e)
+            # Return a default dimension for common models
+            if "nomic" in self.embedding_model.lower():
+                return 768  # nomic-embed-text default dimension
+            elif "mxbai" in self.embedding_model.lower():
+                return 1024  # mxbai-embed-large default dimension
+            else:
+                return 384  # fallback default
+
     def count_tokens(self, text: str) -> int:
         """
         Simple token counting based on rough estimation.

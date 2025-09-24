@@ -32,6 +32,8 @@ class Message(Base):
     # For RAG support - store token count and embeddings
     token_count = Column(Integer, nullable=True)
     embedding = Column(Vector(1536), nullable=True)  # OpenAI text-embedding-ada-002 dimension
+    embedding_model = Column(String, nullable=True)    # z.B. "mxbai-embed-large"
+    embedding_dim = Column(Integer, nullable=True)     # z.B. 1536
     
     # Store citation mappings and document references as JSON
     citation_mapping = Column(Text, nullable=True)  # JSON string for inline citation data
@@ -84,6 +86,8 @@ class DocumentChunk(Base):
     
     # Vector embedding for semantic search
     embedding = Column(Vector(1536), nullable=False)  # OpenAI text-embedding-ada-002 dimension
+    embedding_model = Column(String, nullable=True)
+    embedding_dim = Column(Integer, nullable=True)
     
     # Chunk metadata (JSON) - can store message_ids for chats, page_num for PDFs, etc.
     chunk_metadata = Column(Text, nullable=True)  # JSON string for chunk-specific metadata

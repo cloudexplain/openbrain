@@ -1,6 +1,6 @@
 import os
 
-from typing import List, Union
+from typing import List, Union, Optional
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     ollama_model: str = os.getenv("OLLAMA_MODEL", "smollm2:135m")
     ollama_embedding_model: str = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
 
+
+    embedding_model: Optional[str] = None
+    embedding_dim: Optional[int] = None
     # Security Configuration
     secret_key: str = os.getenv("SECRET_KEY", "your-secret-key-here")
 
@@ -74,6 +77,20 @@ class Settings(BaseSettings):
 
         # bereits eine Liste
         return v
+    
+    @property
+    def embedding_model_resolved(self) -> str:
+        """
+        Rückgabe des tatsächlich zu verwendenden Embedding-Modells:
+        1) explicit EMBEDDING_MODEL env var / override
+        2) provider-spezifischer Default (ollama vs azure)
+        """
+        if self.embedding_model:
+            return self.embedding_model
+        if self.llm_provider == "ollama":
+            return self.ollama_embedding_model
+        # Azure-Feld heißt azure_openai_embedding_deployment_name
+        return self.azure_openai_embedding_deployment_name
 
 
 def get_settings() -> Settings:

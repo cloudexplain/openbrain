@@ -3,9 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.models.database import dispose_db_engine # Import the dispose function
+from app.services.langchain import LangchainOllamaService
+# from app.services.reembed_queue import start_worker
+from app.config import Settings
 
 settings = get_settings()
 from app.api import chat, tags, document_tags, documents, deep_research
+import logging
+import asyncio
 import logging
 
 # Configure logging
@@ -21,11 +26,34 @@ app = FastAPI(
 
 
 # Application lifecycle events
+
 @app.on_event("startup")
-async def startup_event():
-    """Initialize application on startup"""
-    logger.info("Starting SecondBrain API...")
-    logger.info("Application startup complete")
+async def startup_events():
+    # Bestimme embedding_dim falls noch nicht gesetzt
+    if settings.embedding_dim is None and settings.llm_provider == "ollama":
+        try:
+            svc = LangchainOllamaService(
+                base_url=settings.ollama_base_url,
+                model=settings.ollama_model,
+                embedding_model=settings.embedding_model_resolved,
+            )
+            # Call the helper function to determine dimension
+            dim = svc.get_embedding_dimension()
+            settings.embedding_dim = int(dim)
+            logger.info("Detected embedding_dim=%s for model=%s", settings.embedding_dim, settings.embedding_model_resolved)
+        except Exception as e:
+            logger.warning("Could not auto-detect embedding_dim: %s. Fallback=1536", e)
+            settings.embedding_dim = settings.embedding_dim or 1536
+
+    logger.info("Using embedding model=%s dim=%s", settings.embedding_model_resolved, settings.embedding_dim)
+
+    # start reembed worker
+    # try:
+    #     start_worker(loop)
+    #     logger.info("Reembed worker started")
+    # except Exception as e:
+    #     logger.warning("Could not start reembed worker: %s", e)
+
 
 
 @app.on_event("shutdown")
