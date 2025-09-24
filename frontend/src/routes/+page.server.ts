@@ -14,12 +14,14 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			}),
 			fetch('http://backend:8000/api/v1/documents', {
 				headers: {}
+			})
 		]);
-		
-		
-		
-		
-		
+
+		// Check if both responses are OK
+		if (!chatsResponse.ok || !documentsResponse.ok) {
+			throw new Error('Failed to fetch data from backend');
+		}
+
 		const chats = await chatsResponse.json();
 		const documents = await documentsResponse.json();
 		
