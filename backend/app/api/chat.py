@@ -722,7 +722,7 @@ async def update_document_chunks(
     try:
         # Verify document exists
         result = await db.execute(
-            select(Document).where(Document.id == document_id, Document.user_id == None)
+            select(Document).where(Document.id == document_id)
         )
         document = result.scalar_one_or_none()
         
@@ -1103,7 +1103,7 @@ async def serve_pdf_file(
     try:
         # Find the document
         result = await db.execute(
-            select(Document).where(Document.id == document_id, Document.user_id == None)
+            select(Document).where(Document.id == document_id)
         )
         document = result.scalar_one_or_none()
         

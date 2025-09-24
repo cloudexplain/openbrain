@@ -145,7 +145,6 @@ class EmbeddingService:
         # Create Document for this chat
         chat_document = Document(
             title=f"Chat: {chat.title}",
-            user_id=chat.user_id,
             source_type="chat",
             source_id=str(chat.id),
             document_metadata=json.dumps({
@@ -224,9 +223,7 @@ class EmbeddingService:
             )
         )
         
-        # Add user filtering if specified
-        if user_id:
-            stmt = stmt.where(Document.user_id == user_id)
+        # User filtering removed - no longer needed
         
         # Add source type filtering if specified
         if source_types:
