@@ -37,14 +37,48 @@ class Settings(BaseSettings):
     )
 
     # CORS Configuration (allow comma-separated env var)
-    cors_origins: List[str] = os.getenv("CORS_ORIGINS", "*")
-    def __init__(self, **values):
-        super().__init__(**values)
-        if isinstance(self.cors_origins, str):
-            self.cors_origins = [s.strip() for s in self.cors_origins.split(",") if s.strip()]
+    cors_origins: List[str] = ["*"]
 
+    @field_validator("cors_origins", mode="before")
+    def validate_cors_origins(cls, v):
+        """
+        Akzeptiert:
+         - "*" (Wildcard) -> ["*"]
+         - Komma-separierte Strings: "https://a.com,https://b.com"
+         - JSON-Array-Strings: '["https://a.com"]'
+         - bereits Listen
+        """
+        # Wenn nichts gesetzt, versuche die Umgebungsvariable
+        if v is None or v == ["*"]:
+            env_value = os.getenv("CORS_ORIGINS", None)
+            if env_value is None:
+                return ["*"]
+            v = env_value
+
+        # jetzt v kann ein String oder eine Liste sein
+        if isinstance(v, str):
+            s = v.strip()
+            if s == "*" or s == '["*"]':
+                return ["*"]
+            # JSON-Array-String?
+            if s.startswith("[") and s.endswith("]"):
+                try:
+                    import json
+                    parsed = json.loads(s)
+                    if isinstance(parsed, list):
+                        return parsed
+                except Exception:
+                    pass
+            # Komma-separierter String
+            return [part.strip() for part in s.split(",") if part.strip()]
+
+        # bereits eine Liste
+        return v
 
 
 def get_settings() -> Settings:
     """Get settings instance - lazy loaded when needed."""
     return Settings()
+
+# Global settings instance
+settings = get_settings()
