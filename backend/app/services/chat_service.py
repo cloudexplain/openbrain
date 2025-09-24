@@ -100,7 +100,7 @@ class ChatService:
         )
         return list(result.scalars().all())
     @staticmethod
-    async def create_chat(db: AsyncSession, chat_data: ChatCreate, user_id: UUID = None) -> Chat:
+    async def create_chat(db: AsyncSession, chat_data: ChatCreate) -> Chat:
         """Create a new chat"""
         db_chat = ChatModel(title=chat_data.title)
         db.add(db_chat)
@@ -109,7 +109,7 @@ class ChatService:
         return db_chat
     
     @staticmethod
-    async def get_chat(db: AsyncSession, chat_id: UUID, user_id: UUID = None) -> Optional[Chat]:
+    async def get_chat(db: AsyncSession, chat_id: UUID) -> Optional[Chat]:
         """Get a chat by ID with messages"""
         result = await db.execute(
             select(ChatModel)
@@ -119,7 +119,7 @@ class ChatService:
         return result.scalar_one_or_none()
     
     @staticmethod
-    async def get_chats(db: AsyncSession, user_id: UUID = None, limit: int = 50) -> List[ChatListItem]:
+    async def get_chats(db: AsyncSession, limit: int = 50) -> List[ChatListItem]:
         """Get all chats with basic info"""
         # Get chats with their latest message
         query = """
@@ -161,7 +161,7 @@ class ChatService:
         ]
     
     @staticmethod
-    async def update_chat(db: AsyncSession, chat_id: UUID, chat_data, user_id: UUID = None) -> Optional[Chat]:
+    async def update_chat(db: AsyncSession, chat_id: UUID, chat_data) -> Optional[Chat]:
         """Update a chat's title and/or messages"""
         # Get the chat
         result = await db.execute(
@@ -219,7 +219,7 @@ class ChatService:
         )
     
     @staticmethod
-    async def delete_chat(db: AsyncSession, chat_id: UUID, user_id: UUID = None) -> bool:
+    async def delete_chat(db: AsyncSession, chat_id: UUID) -> bool:
         """Delete a chat and all its messages"""
         result = await db.execute(
             select(ChatModel).where(ChatModel.id == chat_id)
@@ -269,7 +269,6 @@ class ChatService:
         db: AsyncSession,
         chat_id: UUID,
         user_message: str,
-        user_id: UUID = None,
         use_rag: bool = True,
         rag_limit: int = 5,
         rag_threshold: float = 0.7,
@@ -281,7 +280,7 @@ class ChatService:
     ) -> AsyncGenerator[tuple[str, Optional[UUID]], None]:
         """Generate AI response for a chat message with optional RAG support"""
         # Get chat with messages for context
-        chat = await ChatService.get_chat(db, chat_id, None)
+        chat = await ChatService.get_chat(db, chat_id)
         if not chat:
             raise ValueError("Chat not found")
         
@@ -306,7 +305,6 @@ class ChatService:
             relevant_chunks = await embedding_service.similarity_search(
                 db=db,
                 query=user_message,
-                user_id=None,
                 limit=rag_limit,
                 similarity_threshold=rag_threshold,
                 tag_ids=tag_ids if tag_ids else None,
@@ -553,10 +551,13 @@ Do not end with opt-in questions or hedging closers. Do **not** say the followin
             yield (chunk, None)
         
         # Process citations in response content to create markdown links
+        print(f"📖 Processing citations with mapping: {chunk_to_citation_mapping}")
         processed_content = ChatService.process_citations_to_markdown(
-            response_content, 
+            response_content,
             chunk_to_citation_mapping
         )
+        print(f"📖 Original content: {response_content[:200]}...")
+        print(f"📖 Processed content: {processed_content[:200]}...")
         
         # Save assistant response with processed markdown links
         assistant_msg = await ChatService.add_message(
@@ -571,17 +572,24 @@ Do not end with opt-in questions or hedging closers. Do **not** say the followin
     @staticmethod
     def process_citations_to_markdown(content: str, citation_mapping: dict) -> str:
         """Convert inline citations [1], [2] to markdown links using citation mapping"""
+        print(f"📖 process_citations_to_markdown called with content length: {len(content)}")
+        print(f"📖 Citation mapping: {citation_mapping}")
+
         if not citation_mapping:
+            print("📖 No citation mapping provided, returning original content")
             return content
         
         import re
         
         def replace_citation(match):
             citation_num = int(match.group(1))
+            print(f"📖 Found citation [{citation_num}]")
             citation_data = citation_mapping.get(citation_num)
-            
+            print(f"📖 Citation data for [{citation_num}]: {citation_data}")
+
             if not citation_data:
                 # No mapping found, return original citation
+                print(f"📖 No mapping found for citation [{citation_num}], keeping original")
                 return match.group(0)
             
             # Extract citation data
@@ -597,30 +605,34 @@ Do not end with opt-in questions or hedging closers. Do **not** say the followin
             # Build URL with highlighting parameters
             url = f"/knowledge/{document_id}?chunks={chunk_id}"
             # Don't include pages parameter - let the viewer show all pages and highlight specific chunk
-            
+
             # Create markdown link: [original_citation](url "title")
             title = f"{document_title}"
             if page_number:
                 title += f" (Page {page_number})"
-            
-            return f"[{match.group(0)}]({url} \"{title}\")"
+
+            result = f"[{match.group(0)}]({url} \"{title}\")"
+            print(f"📖 Converted [{citation_num}] to markdown: {result}")
+            return result
         
         # Pattern to match citations like [1], [2], etc.
         citation_pattern = r'\[(\d+)\]'
+        print(f"📖 Looking for citations with pattern: {citation_pattern}")
         processed_content = re.sub(citation_pattern, replace_citation, content)
-        
+
+        print(f"📖 Final processed content: {processed_content[:300]}...")
         return processed_content
     
     @staticmethod
-    async def get_or_create_chat(db: AsyncSession, chat_id: Optional[UUID] = None, title: str = "New Chat", user_id: UUID = None) -> Chat:
+    async def get_or_create_chat(db: AsyncSession, chat_id: Optional[UUID] = None, title: str = "New Chat") -> Chat:
         """Get existing chat or create new one"""
         if chat_id:
-            chat = await ChatService.get_chat(db, chat_id, None)
+            chat = await ChatService.get_chat(db, chat_id)
             if chat:
                 return chat
 
         # Create new chat
-        return await ChatService.create_chat(db, ChatCreate(title=title), None)
+        return await ChatService.create_chat(db, ChatCreate(title=title))
     
     @staticmethod
     async def _run_deep_research_background(db: AsyncSession, message_id: UUID, query: str, params: dict):
@@ -662,7 +674,7 @@ Do not end with opt-in questions or hedging closers. Do **not** say the followin
                 await db.commit()
     
     @staticmethod
-    async def get_message_status(db: AsyncSession, message_id: UUID, user_id: UUID = None) -> Optional[dict]:
+    async def get_message_status(db: AsyncSession, message_id: UUID) -> Optional[dict]:
         """Get deep research status for a message"""
         # Get the message
         result = await db.execute(

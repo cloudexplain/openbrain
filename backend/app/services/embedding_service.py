@@ -191,7 +191,6 @@ class EmbeddingService:
         self,
         db: AsyncSession,
         query: str,
-        user_id: UUID = None,
         limit: int = 5,
         similarity_threshold: float = 0.7,
         source_types: List[str] = None,

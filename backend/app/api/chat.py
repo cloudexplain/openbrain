@@ -26,7 +26,7 @@ async def get_chats(
     db: AsyncSession = Depends(get_db)
 ):
     """Get all chats"""
-    return await ChatService.get_chats(db, None)
+    return await ChatService.get_chats(db)
 
 
 @router.post("/chats")
@@ -35,7 +35,7 @@ async def create_chat(
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new chat"""
-    db_chat = await ChatService.create_chat(db, chat_data, None)
+    db_chat = await ChatService.create_chat(db, chat_data)
     
     # Return manual dict instead of relying on Pydantic model conversion
     return {
@@ -53,7 +53,7 @@ async def get_chat(
     db: AsyncSession = Depends(get_db)
 ):
     """Get a specific chat with messages"""
-    chat = await ChatService.get_chat(db, chat_id, None)
+    chat = await ChatService.get_chat(db, chat_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     return chat
@@ -66,7 +66,7 @@ async def update_chat(
     db: AsyncSession = Depends(get_db)
 ):
     """Update a chat's title and/or messages"""
-    updated_chat = await ChatService.update_chat(db, chat_id, chat_data, None)
+    updated_chat = await ChatService.update_chat(db, chat_id, chat_data)
     if not updated_chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     return updated_chat
@@ -78,7 +78,7 @@ async def delete_chat(
     db: AsyncSession = Depends(get_db)
 ):
     """Delete a chat"""
-    success = await ChatService.delete_chat(db, chat_id, None)
+    success = await ChatService.delete_chat(db, chat_id)
     if not success:
         raise HTTPException(status_code=404, detail="Chat not found")
     return {"message": "Chat deleted successfully"}
@@ -95,8 +95,7 @@ async def chat_with_ai(
         chat = await ChatService.get_or_create_chat(
             db,
             request.chat_id,
-            title=request.message[:50] + "..." if len(request.message) > 50 else request.message,
-            user_id=None
+            title=request.message[:50] + "..." if len(request.message) > 50 else request.message
         )
         
         async def generate_stream():
@@ -105,7 +104,6 @@ async def chat_with_ai(
                     db,
                     chat.id,
                     request.message,
-                    None,
                     use_rag=request.use_rag,
                     rag_limit=request.rag_limit,
                     rag_threshold=request.rag_threshold,
@@ -184,7 +182,7 @@ async def get_chat_messages(
     db: AsyncSession = Depends(get_db)
 ):
     """Get all messages for a specific chat"""
-    chat = await ChatService.get_chat(db, chat_id, None)
+    chat = await ChatService.get_chat(db, chat_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     
@@ -198,7 +196,7 @@ async def save_chat_to_knowledge(
 ):
     """Save a chat conversation to the vector knowledge base"""
     # Get the chat with all messages
-    chat = await ChatService.get_chat(db, chat_id, None)
+    chat = await ChatService.get_chat(db, chat_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     
@@ -268,7 +266,6 @@ async def save_edited_chat_to_knowledge(
             # Create document
             chat_document = Document(
                 title=title,
-                user_id=None,
                 source_type="chat",
                 source_id=str(chat_id),
                 document_metadata=json.dumps({
@@ -318,7 +315,6 @@ async def save_edited_chat_to_knowledge(
             # Create document
             chat_document = Document(
                 title=title,
-                user_id=None,
                 source_type="chat",
                 source_id=str(chat_id),
                 document_metadata=json.dumps({
@@ -537,7 +533,6 @@ async def search_knowledge(
         results = await embedding_service.similarity_search(
             db=db,
             query=query,
-            user_id=None,
             limit=limit,
             similarity_threshold=similarity_threshold,
             source_types=source_types
@@ -1189,7 +1184,7 @@ async def summarize_chat(
     """Generate an auto-summary of a chat conversation"""
     try:
         # Get the chat with all messages
-        chat = await ChatService.get_chat(db, chat_id, None)
+        chat = await ChatService.get_chat(db, chat_id)
         if not chat:
             raise HTTPException(status_code=404, detail="Chat not found")
         
@@ -1242,7 +1237,7 @@ async def get_message_status(
     db: AsyncSession = Depends(get_db)
 ):
     """Get deep research status for a specific message"""
-    status = await ChatService.get_message_status(db, message_id, None)
+    status = await ChatService.get_message_status(db, message_id)
     
     if not status:
         raise HTTPException(status_code=404, detail="Message not found")

@@ -99,7 +99,7 @@
 			if (document.file_type === "application/pdf") {
 				// For now, assume static file serving
 				// This will need to be adjusted based on your backend setup
-				pdfUrl = `/api/documents/${document.id}/file`;
+				pdfUrl = `/api/v1/documents/${document.id}/pdf`;
 				console.log(
 					"🔍 Knowledge page: PDF URL set to:",
 					pdfUrl,

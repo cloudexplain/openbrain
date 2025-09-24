@@ -306,12 +306,11 @@ async def get_tokens(config: RunnableConfig):
     if not thread_id:
         return None
         
-    user_id = config.get("metadata", {}).get("owner")
-    if not user_id:
-        return None
-    
+    # Use a global token key since we don't have user management
+    token_key = "global_tokens"
+
     # Retrieve stored tokens
-    tokens = await store.aget((user_id, "tokens"), "data")
+    tokens = await store.aget((token_key, "tokens"), "data")
     if not tokens:
         return None
     
@@ -323,7 +322,7 @@ async def get_tokens(config: RunnableConfig):
     
     if current_time > expiration_time:
         # Token expired, clean up and return None
-        await store.adelete((user_id, "tokens"), "data")
+        await store.adelete((token_key, "tokens"), "data")
         return None
 
     return tokens.value
@@ -342,12 +341,11 @@ async def set_tokens(config: RunnableConfig, tokens: dict[str, Any]):
     if not thread_id:
         return
         
-    user_id = config.get("metadata", {}).get("owner")
-    if not user_id:
-        return
-    
+    # Use a global token key since we don't have user management
+    token_key = "global_tokens"
+
     # Store the tokens
-    await store.aput((user_id, "tokens"), "data", tokens)
+    await store.aput((token_key, "tokens"), "data", tokens)
 
 # async def fetch_tokens(config: RunnableConfig) -> dict[str, Any]:
 #     """Fetch and refresh MCP tokens, obtaining new ones if needed.

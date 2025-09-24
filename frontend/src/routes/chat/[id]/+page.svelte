@@ -240,11 +240,16 @@
 											// Update with real message ID
 											assistantMessage.id = data.message_id;
 										}
-										
+
 										if (data.document_references && assistantMessage) {
 											messageDocumentReferences.set(assistantMessage.id, data.document_references);
 										}
-										
+
+										// Debug citation mapping
+										if (data.citation_mapping) {
+											console.log('📖 Citation mapping received:', data.citation_mapping);
+										}
+
 										streamingMessage = "";
 										assistantMessage = null; // Reset for next message
 									}
