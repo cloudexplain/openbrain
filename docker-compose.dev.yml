@@ -80,7 +80,7 @@ services:
       - AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME=${AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME:-text-embedding-3-small}
       - SECRET_KEY=${SECRET_KEY}
       - LLM_PROVIDER=${LLM_PROVIDER:-azure_openai}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - "OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
       - OLLAMA_MODEL=${OLLAMA_MODEL:-smollm2:135m}
       - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
       # - CORS_ORIGINS=http://localhost:5173,http://frontend:5173
@@ -91,6 +91,8 @@ services:
       - uploads:/app/uploads
     networks:
       - secondbrain-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy

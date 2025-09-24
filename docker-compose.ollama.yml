@@ -212,6 +212,7 @@ volumes:
   ollama_data:
     driver: local
 
+
 networks:
   secondbrain-network:
-    driver: bridge
+    external: true
