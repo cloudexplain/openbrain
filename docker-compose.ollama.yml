@@ -1,0 +1,170 @@
+services:
+  # PostgreSQL mit pgvector
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: openbrain-postgres
+    environment:
+      POSTGRES_DB: secondbrain
+      POSTGRES_USER: secondbrain
+      POSTGRES_PASSWORD: password
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.max=10000
+      -c pg_stat_statements.track=all
+      -c log_statement=all
+      -c log_duration=on
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - openbrain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U secondbrain -d secondbrain"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # DB-Initializer (führt SQL-Skripte nur falls nötig aus)
+  db-init:
+    image: pgvector/pgvector:pg16
+    container_name: openbrain-db-init
+    environment:
+      PGHOST: postgres
+      PGUSER: secondbrain
+      PGPASSWORD: password
+      PGDATABASE: secondbrain
+    volumes:
+      - ./database/init-scripts:/init-scripts
+    networks:
+      - openbrain-network
+    depends_on:
+      - postgres
+    restart: "no"
+    command: >
+      bash -c "
+      echo 'Checking database tables...' &&
+      TABLE_COUNT=$$(psql -h \"$${PGHOST}\" -U \"$${PGUSER}\" -tAc \"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';\") &&
+      echo \"Found $$TABLE_COUNT tables\" &&
+      if [ \"$$TABLE_COUNT\" -lt \"4\" ]; then
+        echo 'Creating database schema...' &&
+        for script in /init-scripts/*.sql; do
+          echo \"Running $$script...\" &&
+          PGPASSWORD=\"$${PGPASSWORD}\" psql -h \"$${PGHOST}\" -U \"$${PGUSER}\" -d \"$${PGDATABASE}\" -f \"$$script\"
+        done &&
+        echo 'Database initialization complete!'
+      else
+        echo 'Database tables already exist'
+      fi
+      "
+
+  # Ollama Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: openbrain-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+    networks:
+      - openbrain-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:11434/ || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  # Ollama Model Downloader (Init - lädt Modelle in Ollama)
+  ollama-init:
+    image: curlimages/curl:latest
+    container_name: openbrain-ollama-init
+    depends_on:
+      - ollama
+    networks:
+      - openbrain-network
+    volumes:
+      - ./scripts:/scripts
+    command: >
+      sh -c "
+        sleep 15 &&
+        curl -s -X POST http://ollama:11434/api/pull -H 'Content-Type: application/json' -d '{\"name\":\"smollm2:135m\"}' || echo 'smollm2 pull failed' &&
+        curl -s -X POST http://ollama:11434/api/pull -H 'Content-Type: application/json' -d '{\"name\":\"nomic-embed-text\"}' || echo 'nomic-embed-text pull failed'
+      "
+    restart: "no"
+
+  # Backend (FastAPI)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: openbrain-backend
+    working_dir: /app
+    ports:
+      - "8000:8000"
+    environment:
+      # LLM Provider
+      LLM_PROVIDER: ollama
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: smollm2:135m
+      OLLAMA_EMBEDDING_MODEL: nomic-embed-text
+
+      # Azure OpenAI (optional)
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_DEPLOYMENT_NAME: ${AZURE_OPENAI_DEPLOYMENT_NAME:-gpt-4}
+      AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME: ${AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME:-text-embedding-ada-002}
+
+      # Database
+      DATABASE_URL: postgresql+asyncpg://secondbrain:password@postgres:5432/secondbrain
+
+      # CORS (als JSON-String)
+      CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173","http://localhost:4173"]'
+    depends_on:
+      - postgres
+      - ollama
+      - db-init
+    volumes:
+      - ./backend:/app
+    networks:
+      - openbrain-network
+    restart: unless-stopped
+    command: ./startup.sh
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend (optional)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: openbrain-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - openbrain-network
+    restart: unless-stopped
+    environment:
+      PUBLIC_API_URL: http://localhost:8000
+
+volumes:
+  ollama_data:
+  postgres_data:
+
+networks:
+  openbrain-network:
+    driver: bridge

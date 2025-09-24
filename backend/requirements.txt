@@ -25,3 +25,5 @@ langgraph
 # langchain-mcp-adapters  # <- todo: version conflict with openai and fastapi on anyio
 langchain-tavily
 tavily-python>=0.5.0
+langchain-ollama>=0.1.0
+httpx>=0.24.0

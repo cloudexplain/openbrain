@@ -33,7 +33,7 @@ services:
 
   # Database initializer - ensures tables exist
   db-init:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg15
     container_name: secondbrain-db-init
     environment:
       PGHOST: postgres
@@ -77,8 +77,12 @@ services:
       - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION}
       - AZURE_OPENAI_DEPLOYMENT_NAME=${AZURE_OPENAI_DEPLOYMENT_NAME}
       - AZURE_MINI_DEPLOYMENT_NAME=${AZURE_MINI_DEPLOYMENT_NAME}
-      - AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME=${AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME}
+      - AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME=${AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME:-text-embedding-3-small}
       - SECRET_KEY=${SECRET_KEY}
+      - LLM_PROVIDER=${LLM_PROVIDER:-azure_openai}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-smollm2:135m}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
       # - CORS_ORIGINS=http://localhost:5173,http://frontend:5173
     ports:
       - "8000:8000"

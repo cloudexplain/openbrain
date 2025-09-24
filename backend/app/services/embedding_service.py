@@ -1,5 +1,5 @@
 """
-Embedding service using Azure OpenAI directly
+Embedding service supporting both Azure OpenAI and Ollama
 """
 from typing import List, Optional, Tuple
 from openai import AzureOpenAI
@@ -8,6 +8,7 @@ from langchain_core.documents import Document as LangChainDocument
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, UnstructuredWordDocumentLoader
 import tiktoken
 import json
+import logging
 from uuid import UUID, uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 from pathlib import Path
@@ -15,15 +16,45 @@ from pathlib import Path
 from app.config import get_settings
 from app.models.chat import Chat, Message, Document, DocumentChunk
 
+logger = logging.getLogger(__name__)
+
 
 class EmbeddingService:
     def __init__(self):
-        # Initialize Azure OpenAI client directly
-        self.client = AzureOpenAI(
-            api_version=get_settings().azure_openai_api_version,
-            azure_endpoint=get_settings().azure_openai_endpoint,
-            api_key=get_settings().azure_openai_api_key
-        )
+        settings = get_settings()
+        # Detect provider based on configuration
+        provider = (settings.llm_provider or "azure_openai").lower()
+        self.provider = provider
+
+        # Initialize appropriate embedding client
+        if provider == "ollama":
+            # Use Ollama for embeddings
+            from app.services.langchain import langchain_ollama_service
+            self.ollama_service = langchain_ollama_service
+            self.client = None
+            self.tokenizer = None
+            logger.info("Using Ollama for embeddings")
+        else:
+            # Use Azure OpenAI for embeddings (default)
+            try:
+                self.client = AzureOpenAI(
+                    api_version=settings.azure_openai_api_version,
+                    azure_endpoint=settings.azure_openai_endpoint,
+                    api_key=settings.azure_openai_api_key
+                )
+                # Initialize tokenizer for counting tokens
+                self.tokenizer = tiktoken.encoding_for_model(settings.azure_openai_embedding_deployment_name)
+                self.ollama_service = None
+                logger.info("Using Azure OpenAI for embeddings")
+            except Exception as e:
+                logger.error("Failed to initialize Azure OpenAI client: %s", e)
+                # Fallback to Ollama if Azure fails
+                from app.services.langchain import langchain_ollama_service
+                self.ollama_service = langchain_ollama_service
+                self.client = None
+                self.tokenizer = None
+                self.provider = "ollama"
+                logger.info("Fallback to Ollama for embeddings")
         
         # Initialize text splitter for chunking
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -32,29 +63,43 @@ class EmbeddingService:
             length_function=len,
             separators=["\n\n", "\n", " ", ""]
         )
-        
-        # Initialize tokenizer for counting tokens
-        self.tokenizer = tiktoken.encoding_for_model(get_settings().azure_openai_embedding_deployment_name)
     
     def count_tokens(self, text: str) -> int:
-        """Count tokens in text using tiktoken"""
-        return len(self.tokenizer.encode(text))
+        """Count tokens in text"""
+        if self.tokenizer:
+            return len(self.tokenizer.encode(text))
+        else:
+            # Simple approximation for Ollama
+            return max(1, len(text) // 4)
     
     def embed_text(self, text: str) -> List[float]:
         """Generate embedding for a single text"""
-        response = self.client.embeddings.create(
-            input=[text],
-            model=get_settings().azure_openai_embedding_deployment_name
-        )
-        return response.data[0].embedding
-    
+        if self.provider == "ollama" and self.ollama_service:
+            return self.ollama_service.embed(text)
+        elif self.client:
+            settings = get_settings()
+            response = self.client.embeddings.create(
+                input=[text],
+                model=settings.azure_openai_embedding_deployment_name
+            )
+            return response.data[0].embedding
+        else:
+            raise RuntimeError("No embedding service available")
+
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts"""
-        response = self.client.embeddings.create(
-            input=texts,
-            model=get_settings().azure_openai_embedding_deployment_name
-        )
-        return [item.embedding for item in response.data]
+        if self.provider == "ollama" and self.ollama_service:
+            # Ollama doesn't have batch embedding, so we embed one by one
+            return [self.ollama_service.embed(text) for text in texts]
+        elif self.client:
+            settings = get_settings()
+            response = self.client.embeddings.create(
+                input=texts,
+                model=settings.azure_openai_embedding_deployment_name
+            )
+            return [item.embedding for item in response.data]
+        else:
+            raise RuntimeError("No embedding service available")
     
     def chunk_chat_conversation(self, chat: Chat) -> List[Tuple[str, List[UUID], dict]]:
         """

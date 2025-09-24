@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.config import get_settings
 from app.models.database import dispose_db_engine # Import the dispose function
 
