@@ -1,4 +1,7 @@
-"""Graph state definitions and data structures for the Deep Research agent."""
+"""Graph state definitions and data structures for the Deep Research agent.
+
+Adapted from: https://github.com/langchain-ai/open_deep_research
+"""
 
 import operator
 from typing import Annotated, Optional

@@ -33,23 +33,9 @@ ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <cla
 
 
 Debugging:
-docker exec -it b33aa13687f9 bash
 psql -h localhost -U secondbrain
 then enter password: secondbrain_password
 
-
-docker image rm -f secondbrain-backend:prod
-docker image rm -f secondbrain-db-init:prod
-docker image rm -f secondbrain-frontend:prod
-docker image rm -f secondbrain-pgadmin:prod
-docker image rm -f secondbrain-postgres:prod
-
-
-sudo docker image rm -f secondbrain-backend
-sudo docker image rm -f secondbrain-frontend
-sudo docker image rm -f secondbrain-backend
-sudo docker image rm -f node
-sudo docker image rm -f pgvector/pgvector
-sudo docker image rm -f dpage/pgadmin4
-sudo docker image rm -f hello-world
-
+Latest todo, 13.09.2025:
+- check backend/try_calling_think.py and the backend/try_calling_think_anthropic.py, the problem seems to be that openai models do not like to call tools as their anthropic counterparts
+- idea: try to rewrite the prompt, azure openai models just don't seem to like to call the think_tool, when we basically renamed it to save things and do a bit more, it was called. So we should experiment with different prompts to see if these things get better.

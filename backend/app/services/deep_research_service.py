@@ -39,6 +39,7 @@ class DeepResearchService:
                 "allow_clarification": False,  # Skip clarification for faster testing
                 "max_concurrent_research_units": 1,  # Number of parallel researchers
                 "search_api": "tavily",  # Use Tavily search API
+                "search_api_key": settings.search_api_key,
                 "max_researcher_iterations": 1,  # Supervisor reflection cycles
                 "max_react_tool_calls": 1,  # Max searches per researcher
                 "azure_openai_endpoint": settings.azure_openai_endpoint,

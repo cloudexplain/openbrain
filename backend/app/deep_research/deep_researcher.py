@@ -1,4 +1,7 @@
-"""Main LangGraph implementation for the Deep Research agent."""
+"""Main LangGraph implementation for the Deep Research agent.
+
+Adapted from: https://github.com/langchain-ai/open_deep_research
+"""
 
 import asyncio
 from typing import Literal
@@ -51,6 +54,7 @@ from app.deep_research.utils import (
     remove_up_to_last_ai_message,
     think_tool,
 )
+from app.deep_research.parse_tool_calls import ensure_tool_calls
 
 # Initialize a configurable model that we will use throughout the agent
 configurable_model = init_chat_model(
@@ -89,8 +93,6 @@ async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Comman
     }
     
     # Configure model with structured output and retry logic
-    
-    get_api_key_for_model(configurable.research_model, config)
     clarification_model = (
         configurable_model
         .with_structured_output(ClarifyWithUser, method="function_calling")
@@ -160,6 +162,7 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> Com
         date=get_today_str()
     )
     response = await research_model.ainvoke([HumanMessage(content=prompt_content)])
+    ensure_tool_calls(response)
     
     # Step 3: Initialize supervisor with research brief and instructions
     supervisor_system_prompt = lead_researcher_prompt.format(
@@ -223,6 +226,9 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
     # Step 2: Generate supervisor response based on current context
     supervisor_messages = state.get("supervisor_messages", [])
     response = await research_model.ainvoke(supervisor_messages)
+    
+    # Ensure tool_calls are populated (either from structured calling or parsed from content)
+    ensure_tool_calls(response)
     
     # Step 3: Update state and proceed to tool execution
     return Command(
@@ -427,6 +433,9 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
     # Step 3: Generate researcher response with system context
     messages = [SystemMessage(content=researcher_prompt)] + researcher_messages
     response = await research_model.ainvoke(messages)
+    
+    # Ensure tool_calls are populated (either from structured calling or parsed from content)
+    ensure_tool_calls(response)
     
     # Step 4: Update state and proceed to tool execution
     return Command(

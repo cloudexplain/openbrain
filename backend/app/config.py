@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     azure_email_connection_string: str = ""
     azure_email_sender_address: str = ""
     
+    search_api_key: str
     # Frontend URL Configuration
     base_url: str = "http://localhost:5173"
     

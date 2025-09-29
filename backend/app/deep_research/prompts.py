@@ -1,4 +1,7 @@
-"""System prompts and prompt templates for the Deep Research agent."""
+"""System prompts and prompt templates for the Deep Research agent.
+
+Adapted from: https://github.com/langchain-ai/open_deep_research
+"""
 
 clarify_with_user_instructions="""
 These are the messages that have been exchanged so far from the user asking for the report:

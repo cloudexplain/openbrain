@@ -1,4 +1,7 @@
-"""Configuration management for the Open Deep Research system."""
+"""Configuration management for the Open Deep Research system.
+
+Adapted from: https://github.com/langchain-ai/open_deep_research
+"""
 
 import os
 from enum import Enum
@@ -228,6 +231,7 @@ class Configuration(BaseModel):
     azure_openai_api_version: Optional[str] = None
     azure_openai_deployment_name: Optional[str] = None
     azure_openai_api_key: Optional[str] = None
+    search_api_key: Optional[str] = None
 
     # MCP server configuration
     mcp_config: Optional[MCPConfig] = Field(
