@@ -297,7 +297,7 @@
 		if (!chatId) return;
 
 		try {
-			const response = await fetch(`/api/v1/chats/${chatId}/auto-title`, {
+			const response = await fetch(`/api/v1/chats/${chatId}/auto-update-title`, {
 				method: "POST",
 			});
 

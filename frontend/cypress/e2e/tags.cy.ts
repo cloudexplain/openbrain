@@ -1,4 +1,9 @@
 describe('Tags', () => {
+  beforeEach(() => {
+    cy.visit('/')
+    cy.wait(500)
+  })
+
   it("create and delete a tag", () => {
     // Open tags page
     cy.get('.from-orange-500').click()

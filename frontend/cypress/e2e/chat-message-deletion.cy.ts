@@ -1,5 +1,5 @@
 describe('Chat Message Deletion', () => {
-  beforeEach(() => {
+  before(() => {
     cy.visit('/')
     cy.wait(500)
   })

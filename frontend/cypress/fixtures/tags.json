@@ -1,0 +1,40 @@
+{
+  "testTag": {
+    "name": "Cypress Test Tag",
+    "description": "This is a test tag created by Cypress automation testing"
+  },
+  "sampleTags": [
+    {
+      "name": "Important",
+      "description": "High priority items and critical information"
+    },
+    {
+      "name": "Research",
+      "description": "Items related to research and investigation"
+    },
+    {
+      "name": "Development", 
+      "description": "Code development and programming related content"
+    },
+    {
+      "name": "Documentation",
+      "description": "Documentation and technical writing"
+    },
+    {
+      "name": "Testing",
+      "description": "Testing procedures and quality assurance"
+    }
+  ],
+  "longTag": {
+    "name": "Very Long Tag Name That Tests The Length Limits",
+    "description": "This is a very long description that tests how the system handles lengthy tag descriptions. It includes multiple sentences and various punctuation marks to ensure proper handling of extended text content."
+  },
+  "specialCharTag": {
+    "name": "Special-Chars_123",
+    "description": "Tag with special characters: @#$%^&*()[]{}|;:,.<>?"
+  },
+  "emptyFields": {
+    "name": "",
+    "description": ""
+  }
+}

@@ -1,4 +1,8 @@
 describe('Chat', () => {
+  beforeEach(() => {
+    cy.visit('/')
+    cy.wait(500)
+  })
 
   it('should create a new chat', () => {
     // Chat tests go here

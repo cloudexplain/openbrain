@@ -1,4 +1,8 @@
-describe('Chat', () => {    
+describe('Chat', () => { 
+   beforeEach(() => {
+    cy.visit('/')
+    cy.wait(500)
+  })
 
   it("go to knowledge page", () => {
     // Test direct route navigation

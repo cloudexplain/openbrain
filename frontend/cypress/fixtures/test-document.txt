@@ -1,0 +1,10 @@
+This is a test document for uploading to the knowledge base.
+
+It contains some sample text that can be used for testing the file upload functionality.
+
+The document has multiple paragraphs to simulate a real document structure.
+
+Testing upload feature:
+- File upload
+- Processing
+- Knowledge base integration

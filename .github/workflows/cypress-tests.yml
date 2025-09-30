@@ -1,0 +1,130 @@
+name: Cypress E2E Tests
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+  workflow_dispatch:
+
+jobs:
+  cypress-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+      AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+      AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION }}
+      AZURE_OPENAI_DEPLOYMENT_NAME: ${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
+      AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME: ${{ secrets.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME }}
+      AZURE_MINI_DEPLOYMENT_NAME: ${{ secrets.AZURE_MINI_DEPLOYMENT_NAME }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install Docker Compose
+        run: |
+          # Install Docker Compose v2
+          sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+          docker-compose --version
+
+      - name: Create required directories
+        run: |
+          mkdir -p database/init-scripts
+          touch database/init-scripts/.gitkeep
+
+      - name: Build and start all services
+        run: |
+          # Build and start all services using production docker-compose
+          docker-compose -f docker-compose.prod.yml up --build -d
+
+          # Wait for all services to be ready
+          echo "Waiting for services to be ready..."
+          docker-compose -f docker-compose.prod.yml ps
+
+      - name: Check service health
+        run: |
+          echo "=== Service Status ==="
+          docker-compose -f docker-compose.prod.yml ps
+
+          echo "Warte 60 Sekunden, bevor Health-Checks und Logs ausgegeben werden..."
+          sleep 60
+
+          echo "=== Backend logs (letzte 500 Zeilen) ==="
+          docker-compose -f docker-compose.prod.yml logs --no-color --tail=500 backend || true
+
+          echo "=== Frontend logs (letzte 500 Zeilen) ==="
+          docker-compose -f docker-compose.prod.yml logs --no-color --tail=500 frontend || true
+
+          echo "=== Backend Health Check ==="
+          curl -f http://localhost:8000/health || (echo "Backend health check failed" && exit 1)
+
+          echo "=== Frontend Health Check ==="
+          curl -f http://localhost:3000 || (echo "Frontend health check failed" && exit 1)
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies with proper permissions
+        run: |
+          cd frontend
+          # Create npm cache directory with proper permissions
+          mkdir -p ~/.npm
+
+          # Install dependencies with CI-optimized flags
+          npm ci --no-audit --no-fund --prefer-offline
+
+      - name: Install Cypress binary
+        run: |
+          cd frontend
+          npx cypress install
+
+      - name: Run Cypress tests on localhost
+        run: |
+          cd frontend
+          # Use localhost port 3000 for production environment
+          CYPRESS_baseUrl=http://localhost:3000 npm run cypress:run:e2e:prod
+
+      - name: Collect Cypress artifacts
+        if: always()
+        run: |
+          # Create artifacts directory
+          mkdir -p cypress-artifacts
+
+          # Copy screenshots and videos from frontend cypress directory
+          cp -r frontend/cypress/screenshots cypress-artifacts/ 2>/dev/null || true
+          cp -r frontend/cypress/videos cypress-artifacts/ 2>/dev/null || true
+
+      - name: Upload Cypress artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-artifacts-${{ github.run_number }}
+          path: cypress-artifacts/
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Stop and remove all containers
+          docker-compose -f docker-compose.prod.yml down -v
+
+          # Clean up any dangling images
+          docker image prune -f
+
+      - name: Output test results
+        if: always()
+        run: |
+          echo "=== Test Execution Summary ==="
+          echo "Workflow: ${{ github.workflow }}"
+          echo "Run number: ${{ github.run_number }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Actor: ${{ github.actor }}"

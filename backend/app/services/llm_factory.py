@@ -78,12 +78,7 @@ elif provider in ("azure", "azure_openai", "azure-openai"):
     try:
         from app.services.azure_openai import AzureOpenAIService
 
-        llm_service = AzureOpenAIService(
-            api_key=settings.azure_openai_api_key,
-            endpoint=settings.azure_openai_endpoint,
-            deployment_name=settings.azure_openai_deployment_name,
-            api_version=settings.azure_openai_api_version,
-        )
+        llm_service = AzureOpenAIService()
         logger.info(
             "Using Azure OpenAI service (deployment=%s)",
             settings.azure_openai_deployment_name,
@@ -105,12 +100,7 @@ else:
     try:
         from app.services.azure_openai import AzureOpenAIService
 
-        llm_service = AzureOpenAIService(
-            api_key=settings.azure_openai_api_key,
-            endpoint=settings.azure_openai_endpoint,
-            deployment_name=settings.azure_openai_deployment_name,
-            api_version=settings.azure_openai_api_version,
-        )
+        llm_service = AzureOpenAIService()
     except Exception as e:
         logger.exception("Fallback Azure init failed: %s", e)
         llm_service = None
