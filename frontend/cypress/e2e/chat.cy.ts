@@ -81,81 +81,50 @@ describe('Chat', () => {
     // Click save to knowledge base button
     cy.get('.border-t > .flex > .bg-blue-500').click()
 
-    // Wait longer for save action and backend processing (chunking, embedding)
-    cy.wait(5000)
-
-    // Navigate to knowledge base to verify the chat was saved
-    cy.get('.from-emerald-500').scrollIntoView().wait(500).click({ force: true })
-    cy.url().should('include', '/knowledge')
-
-    // Wait longer for backend processing to complete in CI environment
-    cy.wait(5000)
-
-    // Verify the saved chat appears in knowledge base with longer timeout
-    cy.get('.rounded-xl > .w-80 > .overflow-y-auto > :nth-child(1)', { timeout: 30000 }).should('exist')
+    // Wait for save action to complete
+    cy.wait(1000)
   })
 
   it('should navigate to knowledge base and test saved chat', () => {
-    // Navigate to knowledge base
-    cy.get('.from-emerald-500').scrollIntoView().wait(500).click({ force: true })
+    // Click on Knowledge Base navigation
+    cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
 
-    // Polling strategy: Try multiple times with reloads in between
-    // Backend processing (chunking, embedding) can take longer in CI
-    const maxAttempts = 5
-    const attemptDelay = 5000
-
-    function checkForDocument(attempt = 1) {
-      cy.wait(attemptDelay)
-      cy.reload()
-      cy.wait(2000)
-
-      cy.get('body').then(($body) => {
-        const exists = $body.find('.overflow-y-auto > :nth-child(1) > .items-start').length > 0
-
-        if (!exists && attempt < maxAttempts) {
-          cy.log(`Document not found, attempt ${attempt}/${maxAttempts}, retrying...`)
-          checkForDocument(attempt + 1)
-        } else if (!exists) {
-          throw new Error(`Document not found after ${maxAttempts} attempts. Backend processing may have failed.`)
-        }
-      })
-    }
-
-    checkForDocument()
+    // Wait for knowledge base to load
+    cy.wait(2000)
 
     // Verify the saved chat appears in knowledge base
-    cy.get('.rounded-xl > .w-80 > .overflow-y-auto > :nth-child(1)', { timeout: 10000 }).should('exist')
+    cy.get('.rounded-xl > .w-80 > .overflow-y-auto > :nth-child(1)').should('exist')
 
-    // Verify the chat title appears in the knowledge base
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start > .flex-1 > .font-medium', { timeout: 10000 })
-      .should('exist')
+    // Verify the chat title "Chat: New Chat" appears in the knowledge base
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start > .flex-1 > .font-medium')
+      .should('contain', 'Chat: New Chat')
 
     // Click on the knowledge base item
     cy.get('.overflow-y-auto > :nth-child(1) > .items-start').click()
 
-    // Wait longer for the item to load
-    cy.wait(5000)
+    // Wait for the item to load
+    cy.wait(1000)
 
-    // Verify the chat content appears correctly with longer timeout
-    cy.get('.markdown-content > :nth-child(1)', { timeout: 30000 }).should('contain', 'Hi')
-    cy.get('.markdown-content > :nth-child(2)', { timeout: 30000 }).should('exist').and('not.be.empty')
+    // Verify the chat content appears correctly
+    cy.get('.markdown-content > :nth-child(1)').should('contain', 'Hi')
+    cy.get('.markdown-content > :nth-child(2)').should('exist').and('not.be.empty')
   })
 
   it('should create tag and add to chat', () => {
     // First create a new tag
-    cy.get('.from-orange-500').scrollIntoView().wait(500).click({ force: true })
+    cy.get('.from-orange-500').click()
     cy.url().should('include', '/tags')
-    cy.wait(3000)
+    cy.wait(1000)
 
     // Click the create tag button
-    cy.get('.gap-4 > .px-4', { timeout: 20000 }).click()
-    cy.wait(2000)
+    cy.get('.gap-4 > .px-4').click()
+    cy.wait(1000)
 
     // Load test tag data
     cy.fixture('tags').then((tags) => {
       // Fill in tag name
-      cy.get('#name', { timeout: 20000 }).type(tags.testTag.name)
+      cy.get('#name').type(tags.testTag.name)
 
       // Fill in tag description
       cy.get('#description').type(tags.testTag.description)
@@ -165,7 +134,7 @@ describe('Chat', () => {
       cy.url().should('include', '/tags') // Make sure we're still on tags page
 
       // Wait before submitting
-      cy.wait(2000)
+      cy.wait(1000)
 
       // Submit the form (check if button exists first)
       cy.get('body').then(($body) => {
@@ -179,98 +148,54 @@ describe('Chat', () => {
       })
 
       // Wait for tag creation
-      cy.wait(5000)
+      cy.wait(2000)
 
       // Verify tag appears in the tag list (same as tags.cy.ts)
-      cy.get('.justify-between > .gap-3', { timeout: 20000 }).should('contain', tags.testTag.name)
+      cy.get('.justify-between > .gap-3').should('contain', tags.testTag.name)
 
       // Also verify the tag is visible in the general page
-      cy.contains(tags.testTag.name, { timeout: 20000 }).should('be.visible')
+      cy.contains(tags.testTag.name).should('be.visible')
     })
 
     // Navigate back to knowledge base
-    cy.get('.from-emerald-500').scrollIntoView().wait(500).click({ force: true })
+    cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
-
-    // Polling strategy: Try multiple times with reloads in between
-    const maxAttempts = 5
-    const attemptDelay = 5000
-
-    function checkForDocument(attempt = 1) {
-      cy.wait(attemptDelay)
-      cy.reload()
-      cy.wait(2000)
-
-      cy.get('body').then(($body) => {
-        const exists = $body.find('.overflow-y-auto > :nth-child(1) > .items-start').length > 0
-
-        if (!exists && attempt < maxAttempts) {
-          cy.log(`Document not found, attempt ${attempt}/${maxAttempts}, retrying...`)
-          checkForDocument(attempt + 1)
-        } else if (!exists) {
-          throw new Error(`Document not found after ${maxAttempts} attempts`)
-        }
-      })
-    }
-
-    checkForDocument()
+    cy.wait(2000)
 
     // Click on the saved chat again
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 10000 }).click()
-    cy.wait(3000)
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start').click()
+    cy.wait(1000)
 
     // Click on the inline-flex button to add tag
-    cy.get('.inline-flex', { timeout: 20000 }).click({ multiple: true })
-    cy.wait(2000)
+    cy.get('.inline-flex').click({ multiple: true })
+    cy.wait(1000)
 
     // Add the newly created tag
     cy.fixture('tags').then((tags) => {
-      cy.contains(tags.testTag.name, { timeout: 20000 }).click()
-      cy.wait(2000)
+      cy.contains(tags.testTag.name).click()
+      cy.wait(1000)
 
       // Verify the tag was added to the chat
-      cy.get('.flex > .inline-flex', { timeout: 20000 }).should('contain', tags.testTag.name)
+      cy.get('.flex > .inline-flex').should('contain', tags.testTag.name)
     })
   })
 
   it('should edit saved chat text in knowledge base', () => {
     // Navigate to knowledge base
-    cy.get('.from-emerald-500').scrollIntoView().wait(500).click({ force: true })
+    cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
-
-    // Polling strategy: Try multiple times with reloads in between
-    const maxAttempts = 5
-    const attemptDelay = 5000
-
-    function checkForDocument(attempt = 1) {
-      cy.wait(attemptDelay)
-      cy.reload()
-      cy.wait(2000)
-
-      cy.get('body').then(($body) => {
-        const exists = $body.find('.overflow-y-auto > :nth-child(1) > .items-start').length > 0
-
-        if (!exists && attempt < maxAttempts) {
-          cy.log(`Document not found, attempt ${attempt}/${maxAttempts}, retrying...`)
-          checkForDocument(attempt + 1)
-        } else if (!exists) {
-          throw new Error(`Document not found after ${maxAttempts} attempts`)
-        }
-      })
-    }
-
-    checkForDocument()
-
-    // Click on the saved chat to open it
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 10000 }).click()
-    cy.wait(3000)
-
-    // Click the edit button
-    cy.contains('button', 'Edit', { timeout: 20000 }).click()
     cy.wait(2000)
 
+    // Click on the saved chat to open it
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start').click()
+    cy.wait(1000)
+
+    // Click the edit button
+    cy.contains('button', 'Edit').click()
+    cy.wait(1000)
+
     // Edit the text content in TipTap editor
-    cy.get('.tiptap', { timeout: 20000 }).should('be.visible')
+    cy.get('.tiptap').should('be.visible')
       .should('contain', 'Hi')
 
     // Click in the editor and add some text
@@ -279,26 +204,26 @@ describe('Chat', () => {
     cy.get('.tiptap').type(' This is additional edited content added to the chat.')
 
     // Save the edited content
-    cy.contains('button', 'Save Changes', { timeout: 20000 }).click()
-    cy.wait(3000)
+    cy.contains('button', 'Save Changes').click()
+    cy.wait(1000)
 
     // Verify the edited content appears
-    cy.get('.markdown-content > :nth-child(2)', { timeout: 20000 }).should('contain', 'This is additional edited content added to the chat.')
+    cy.get('.markdown-content > :nth-child(2)').should('contain', 'This is additional edited content added to the chat.')
   })
 
   it('should cleanup - delete saved chat from knowledge base, delete tag, and delete chat', () => {
     // First: Delete the saved chat from knowledge base
-    cy.get('.from-emerald-500').scrollIntoView().wait(500).click({ force: true })
+    cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
     cy.wait(2000)
-    
+
     // Find and delete the saved chat
     cy.get('.overflow-y-auto > :nth-child(1)').should('exist')
     cy.get('.overflow-y-auto > :nth-child(1)').find('button[title*="Delete"], button:contains("Delete"), .delete').first().click()
     cy.wait(1000)
-    
+
     // Second: Delete the created tag
-    cy.get('.from-orange-500').scrollIntoView().wait(500).click({ force: true })
+    cy.get('.from-orange-500').click()
     cy.url().should('include', '/tags')
     cy.wait(1000)
     
