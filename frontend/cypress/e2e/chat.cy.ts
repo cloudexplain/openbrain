@@ -93,11 +93,12 @@ describe('Chat', () => {
     // Wait for knowledge base to load
     cy.wait(2000)
 
-    // Verify the saved chat appears in knowledge base
-    cy.get('.rounded-xl > .w-80 > .overflow-y-auto > :nth-child(1)').should('exist')
+    // Verify the saved chat appears in knowledge base (with retry for CI)
+    // Note: openbrain backend does additional embedding resizing which can take longer in CI
+    cy.get('.rounded-xl > .w-80 > .overflow-y-auto > :nth-child(1)', { timeout: 20000 }).should('exist')
 
     // Verify the chat title "Chat: New Chat" appears in the knowledge base
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start > .flex-1 > .font-medium')
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start > .flex-1 > .font-medium', { timeout: 20000 })
       .should('contain', 'Chat: New Chat')
 
     // Click on the knowledge base item
@@ -162,8 +163,8 @@ describe('Chat', () => {
     cy.url().should('include', '/knowledge')
     cy.wait(2000)
 
-    // Click on the saved chat again
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start').click()
+    // Click on the saved chat again (with timeout for CI)
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 20000 }).click()
     cy.wait(1000)
 
     // Click on the inline-flex button to add tag
@@ -186,8 +187,8 @@ describe('Chat', () => {
     cy.url().should('include', '/knowledge')
     cy.wait(2000)
 
-    // Click on the saved chat to open it
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start').click()
+    // Click on the saved chat to open it (with timeout for CI)
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 20000 }).click()
     cy.wait(1000)
 
     // Click the edit button
