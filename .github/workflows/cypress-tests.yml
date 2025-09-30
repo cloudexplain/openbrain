@@ -2,7 +2,7 @@ name: Cypress E2E Tests
 
 on:
   push:
-    branches: [ main, develop, feature/* ]
+    branches: [ main, develop, feature/* , openbrain* ]
   workflow_dispatch:
 
 jobs:
