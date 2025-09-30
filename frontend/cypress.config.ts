@@ -1,27 +1,8 @@
 import { defineConfig } from 'cypress'
-import { viteDevServer } from '@cypress/vite-dev-server'
-import path from 'path'
 
 export default defineConfig({
-  component: {
-    devServer: (devServerConfig) => {
-      return viteDevServer({
-        ...devServerConfig,
-        viteConfig: {
-          resolve: {
-            alias: {
-              $lib: path.resolve(__dirname, './src/lib'),
-              '$lib/*': path.resolve(__dirname, './src/lib/*')
-            }
-          }
-        }
-      })
-    },
-    specPattern: 'src/**/*.cy.{js,ts,jsx,tsx}',
-    supportFile: 'cypress/support/component.ts'
-  },
   e2e: {
-    baseUrl: process.env.CYPRESS_baseUrl || 'http://localhost:3000',
+    baseUrl: process.env.CYPRESS_baseUrl || 'http://localhost:5174',
     specPattern: 'cypress/e2e/**/*.cy.{js,ts}',
     supportFile: 'cypress/support/e2e.ts',
     setupNodeEvents(on, config) {

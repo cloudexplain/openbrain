@@ -94,11 +94,9 @@ describe('Chat', () => {
   })
 
   it('should navigate to knowledge base and test saved chat', () => {
-    // Already in knowledge base from previous test, just verify we're there
+    // Navigate to knowledge base
+    cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
-
-    // Reload to ensure fresh state
-    cy.reload()
     cy.wait(3000)
 
     // Verify the saved chat appears in knowledge base
@@ -170,10 +168,6 @@ describe('Chat', () => {
     cy.url().should('include', '/knowledge')
     cy.wait(3000)
 
-    // Reload to ensure fresh state
-    cy.reload()
-    cy.wait(3000)
-
     // Click on the saved chat again
     cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 20000 }).click()
     cy.wait(3000)
@@ -196,10 +190,6 @@ describe('Chat', () => {
     // Navigate to knowledge base
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
-    cy.wait(3000)
-
-    // Reload to ensure fresh state
-    cy.reload()
     cy.wait(3000)
 
     // Click on the saved chat to open it
