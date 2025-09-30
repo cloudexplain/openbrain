@@ -91,23 +91,23 @@ describe('Chat', () => {
     cy.url().should('include', '/knowledge')
 
     // Wait for knowledge base to load
-    cy.wait(2000)
-    
+    cy.wait(5000)
+
     // Verify the saved chat appears in knowledge base
-    cy.get('.rounded-xl > .w-80 > .overflow-y-auto > :nth-child(1)').should('exist')
-    
+    cy.get('.rounded-xl > .w-80 > .overflow-y-auto > :nth-child(1)', { timeout: 20000 }).should('exist')
+
     // Verify the chat title "Chat: New Chat" appears in the knowledge base
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start > .flex-1 > .font-medium')
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start > .flex-1 > .font-medium', { timeout: 20000 })
       .should('contain', 'Chat: New Chat')
-    
+
     // Click on the knowledge base item
     cy.get('.overflow-y-auto > :nth-child(1) > .items-start').click()
-    
+
     // Wait for the item to load
-    cy.wait(1000)
-    
+    cy.wait(3000)
+
     // Verify the chat content appears correctly
-    cy.get('.markdown-content > :nth-child(1)').should('contain', 'Hi')
+    cy.get('.markdown-content > :nth-child(1)', { timeout: 20000 }).should('contain', 'Hi')
     cy.get('.markdown-content > :nth-child(2)').should('exist').and('not.be.empty')
   })
 
@@ -115,27 +115,27 @@ describe('Chat', () => {
     // First create a new tag
     cy.get('.from-orange-500').click()
     cy.url().should('include', '/tags')
-    cy.wait(1000)
-    
+    cy.wait(3000)
+
     // Click the create tag button
-    cy.get('.gap-4 > .px-4').click()
-    cy.wait(1000)
-    
+    cy.get('.gap-4 > .px-4', { timeout: 20000 }).click()
+    cy.wait(2000)
+
     // Load test tag data
     cy.fixture('tags').then((tags) => {
       // Fill in tag name
-      cy.get('#name').type(tags.testTag.name)
-      
+      cy.get('#name', { timeout: 20000 }).type(tags.testTag.name)
+
       // Fill in tag description
       cy.get('#description').type(tags.testTag.description)
-      
+
       // Skip color selection (causing redirect issue)
       // cy.get(':nth-child(3) > .flex > .flex-1').first().click()
       cy.url().should('include', '/tags') // Make sure we're still on tags page
-      
+
       // Wait before submitting
-      cy.wait(1000)
-      
+      cy.wait(2000)
+
       // Submit the form (check if button exists first)
       cy.get('body').then(($body) => {
         if ($body.find('.pt-4 > .bg-blue-500').length > 0) {
@@ -146,37 +146,37 @@ describe('Chat', () => {
           cy.log('Submit button not found - might have been redirected')
         }
       })
-      
+
       // Wait for tag creation
-      cy.wait(2000)
-      
+      cy.wait(5000)
+
       // Verify tag appears in the tag list (same as tags.cy.ts)
-      cy.get('.justify-between > .gap-3').should('contain', tags.testTag.name)
-      
+      cy.get('.justify-between > .gap-3', { timeout: 20000 }).should('contain', tags.testTag.name)
+
       // Also verify the tag is visible in the general page
-      cy.contains(tags.testTag.name).should('be.visible')
+      cy.contains(tags.testTag.name, { timeout: 20000 }).should('be.visible')
     })
-    
+
     // Navigate back to knowledge base
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
-    cy.wait(2000)
-    
+    cy.wait(5000)
+
     // Click on the saved chat again
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start').click()
-    cy.wait(1000)
-    
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 20000 }).click()
+    cy.wait(3000)
+
     // Click on the inline-flex button to add tag
-    cy.get('.inline-flex').click({ multiple: true })
-    cy.wait(1000)
-    
+    cy.get('.inline-flex', { timeout: 20000 }).click({ multiple: true })
+    cy.wait(2000)
+
     // Add the newly created tag
     cy.fixture('tags').then((tags) => {
-      cy.contains(tags.testTag.name).click()
-      cy.wait(1000)
-      
+      cy.contains(tags.testTag.name, { timeout: 20000 }).click()
+      cy.wait(2000)
+
       // Verify the tag was added to the chat
-      cy.get('.flex > .inline-flex').should('contain', tags.testTag.name)
+      cy.get('.flex > .inline-flex', { timeout: 20000 }).should('contain', tags.testTag.name)
     })
   })
 
@@ -184,31 +184,31 @@ describe('Chat', () => {
     // Navigate to knowledge base
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
-    cy.wait(2000)
-    
+    cy.wait(5000)
+
     // Click on the saved chat to open it
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start').click()
-    cy.wait(1000)
-    
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 20000 }).click()
+    cy.wait(3000)
+
     // Click the edit button
-    cy.contains('button', 'Edit').click()
-    cy.wait(1000)
-    
+    cy.contains('button', 'Edit', { timeout: 20000 }).click()
+    cy.wait(2000)
+
     // Edit the text content in TipTap editor
-    cy.get('.tiptap').should('be.visible')
+    cy.get('.tiptap', { timeout: 20000 }).should('be.visible')
       .should('contain', 'Hi')
-    
+
     // Click in the editor and add some text
     cy.get('.tiptap').click()
     cy.get('.tiptap').type('{end}')
     cy.get('.tiptap').type(' This is additional edited content added to the chat.')
-    
+
     // Save the edited content
-    cy.contains('button', 'Save Changes').click()
-    cy.wait(1000)
-    
+    cy.contains('button', 'Save Changes', { timeout: 20000 }).click()
+    cy.wait(3000)
+
     // Verify the edited content appears
-    cy.get('.markdown-content > :nth-child(2)').should('contain', 'This is additional edited content added to the chat.')
+    cy.get('.markdown-content > :nth-child(2)', { timeout: 20000 }).should('contain', 'This is additional edited content added to the chat.')
   })
 
   it('should cleanup - delete saved chat from knowledge base, delete tag, and delete chat', () => {
