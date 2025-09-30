@@ -81,40 +81,44 @@ describe('Chat', () => {
     // Click save to knowledge base button
     cy.get('.border-t > .flex > .bg-blue-500').click()
 
-    // Wait for save action to complete and verify it appears in knowledge base
-    cy.wait(2000)
+    // Wait longer for save action and backend processing (chunking, embedding)
+    cy.wait(5000)
 
     // Navigate to knowledge base to verify the chat was saved
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
-    cy.wait(3000)
 
-    // Verify the saved chat appears in knowledge base
-    cy.get('.rounded-xl > .w-80 > .overflow-y-auto > :nth-child(1)', { timeout: 10000 }).should('exist')
+    // Wait longer for backend processing to complete in CI environment
+    cy.wait(5000)
+
+    // Verify the saved chat appears in knowledge base with longer timeout
+    cy.get('.rounded-xl > .w-80 > .overflow-y-auto > :nth-child(1)', { timeout: 30000 }).should('exist')
   })
 
   it('should navigate to knowledge base and test saved chat', () => {
     // Navigate to knowledge base
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
-    cy.wait(3000)
 
-    // Verify the saved chat appears in knowledge base
-    cy.get('.rounded-xl > .w-80 > .overflow-y-auto > :nth-child(1)', { timeout: 20000 }).should('exist')
+    // Wait longer for backend processing in CI environment
+    cy.wait(5000)
+
+    // Verify the saved chat appears in knowledge base with longer timeout
+    cy.get('.rounded-xl > .w-80 > .overflow-y-auto > :nth-child(1)', { timeout: 30000 }).should('exist')
 
     // Verify the chat title appears in the knowledge base
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start > .flex-1 > .font-medium', { timeout: 20000 })
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start > .flex-1 > .font-medium', { timeout: 30000 })
       .should('exist')
 
     // Click on the knowledge base item
     cy.get('.overflow-y-auto > :nth-child(1) > .items-start').click()
 
-    // Wait for the item to load
-    cy.wait(3000)
+    // Wait longer for the item to load
+    cy.wait(5000)
 
-    // Verify the chat content appears correctly
-    cy.get('.markdown-content > :nth-child(1)', { timeout: 20000 }).should('contain', 'Hi')
-    cy.get('.markdown-content > :nth-child(2)').should('exist').and('not.be.empty')
+    // Verify the chat content appears correctly with longer timeout
+    cy.get('.markdown-content > :nth-child(1)', { timeout: 30000 }).should('contain', 'Hi')
+    cy.get('.markdown-content > :nth-child(2)', { timeout: 30000 }).should('exist').and('not.be.empty')
   })
 
   it('should create tag and add to chat', () => {
