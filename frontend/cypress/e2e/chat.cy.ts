@@ -85,7 +85,7 @@ describe('Chat', () => {
     cy.wait(5000)
 
     // Navigate to knowledge base to verify the chat was saved
-    cy.get('.from-emerald-500').scrollIntoView().click()
+    cy.get('.from-emerald-500').scrollIntoView().wait(500).click({ force: true })
     cy.url().should('include', '/knowledge')
 
     // Wait longer for backend processing to complete in CI environment
@@ -97,7 +97,7 @@ describe('Chat', () => {
 
   it('should navigate to knowledge base and test saved chat', () => {
     // Navigate to knowledge base
-    cy.get('.from-emerald-500').scrollIntoView().click()
+    cy.get('.from-emerald-500').scrollIntoView().wait(500).click({ force: true })
     cy.url().should('include', '/knowledge')
 
     // Wait longer for backend processing in CI environment
@@ -123,7 +123,7 @@ describe('Chat', () => {
 
   it('should create tag and add to chat', () => {
     // First create a new tag
-    cy.get('.from-orange-500').scrollIntoView().click()
+    cy.get('.from-orange-500').scrollIntoView().wait(500).click({ force: true })
     cy.url().should('include', '/tags')
     cy.wait(3000)
 
@@ -168,7 +168,7 @@ describe('Chat', () => {
     })
 
     // Navigate back to knowledge base
-    cy.get('.from-emerald-500').scrollIntoView().click()
+    cy.get('.from-emerald-500').scrollIntoView().wait(500).click({ force: true })
     cy.url().should('include', '/knowledge')
     cy.wait(3000)
 
@@ -192,7 +192,7 @@ describe('Chat', () => {
 
   it('should edit saved chat text in knowledge base', () => {
     // Navigate to knowledge base
-    cy.get('.from-emerald-500').scrollIntoView().click()
+    cy.get('.from-emerald-500').scrollIntoView().wait(500).click({ force: true })
     cy.url().should('include', '/knowledge')
     cy.wait(3000)
 
@@ -223,7 +223,7 @@ describe('Chat', () => {
 
   it('should cleanup - delete saved chat from knowledge base, delete tag, and delete chat', () => {
     // First: Delete the saved chat from knowledge base
-    cy.get('.from-emerald-500').scrollIntoView().click()
+    cy.get('.from-emerald-500').scrollIntoView().wait(500).click({ force: true })
     cy.url().should('include', '/knowledge')
     cy.wait(2000)
     
@@ -233,7 +233,7 @@ describe('Chat', () => {
     cy.wait(1000)
     
     // Second: Delete the created tag
-    cy.get('.from-orange-500').scrollIntoView().click()
+    cy.get('.from-orange-500').scrollIntoView().wait(500).click({ force: true })
     cy.url().should('include', '/tags')
     cy.wait(1000)
     
