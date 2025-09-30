@@ -9,7 +9,10 @@
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"cypress:open": "cypress open",
+		"cypress:run": "cypress run",
+		"cypress:run:e2e:prod": "cypress run --config-file cypress.config.ts"
 	},
 	"devDependencies": {
 		"@lucide/svelte": "^0.544.0",
@@ -18,6 +21,7 @@
 		"@sveltejs/vite-plugin-svelte": "^6.0.0",
 		"@tailwindcss/typography": "^0.5.16",
 		"autoprefixer": "^10.4.21",
+		"cypress": "^15.3.0",
 		"postcss": "^8.5.6",
 		"svelte": "^5.0.0",
 		"svelte-check": "^4.0.0",
