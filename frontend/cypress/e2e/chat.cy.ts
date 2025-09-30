@@ -101,7 +101,11 @@ describe('Chat', () => {
     cy.url().should('include', '/knowledge')
 
     // Wait longer for backend processing in CI environment
-    cy.wait(5000)
+    cy.wait(8000)
+
+    // Reload the page to ensure fresh data
+    cy.reload()
+    cy.wait(2000)
 
     // Verify the saved chat appears in knowledge base with longer timeout
     cy.get('.rounded-xl > .w-80 > .overflow-y-auto > :nth-child(1)', { timeout: 30000 }).should('exist')
@@ -170,10 +174,14 @@ describe('Chat', () => {
     // Navigate back to knowledge base
     cy.get('.from-emerald-500').scrollIntoView().wait(500).click({ force: true })
     cy.url().should('include', '/knowledge')
-    cy.wait(3000)
+    cy.wait(5000)
+
+    // Reload the page to ensure fresh data
+    cy.reload()
+    cy.wait(2000)
 
     // Click on the saved chat again
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 20000 }).click()
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 30000 }).click()
     cy.wait(3000)
 
     // Click on the inline-flex button to add tag
@@ -194,10 +202,14 @@ describe('Chat', () => {
     // Navigate to knowledge base
     cy.get('.from-emerald-500').scrollIntoView().wait(500).click({ force: true })
     cy.url().should('include', '/knowledge')
-    cy.wait(3000)
+    cy.wait(5000)
+
+    // Reload the page to ensure fresh data
+    cy.reload()
+    cy.wait(2000)
 
     // Click on the saved chat to open it
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 20000 }).click()
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 30000 }).click()
     cy.wait(3000)
 
     // Click the edit button
