@@ -100,18 +100,35 @@ describe('Chat', () => {
     cy.get('.from-emerald-500').scrollIntoView().wait(500).click({ force: true })
     cy.url().should('include', '/knowledge')
 
-    // Wait longer for backend processing in CI environment
-    cy.wait(8000)
+    // Polling strategy: Try multiple times with reloads in between
+    // Backend processing (chunking, embedding) can take longer in CI
+    const maxAttempts = 5
+    const attemptDelay = 5000
 
-    // Reload the page to ensure fresh data
-    cy.reload()
-    cy.wait(2000)
+    function checkForDocument(attempt = 1) {
+      cy.wait(attemptDelay)
+      cy.reload()
+      cy.wait(2000)
 
-    // Verify the saved chat appears in knowledge base with longer timeout
-    cy.get('.rounded-xl > .w-80 > .overflow-y-auto > :nth-child(1)', { timeout: 30000 }).should('exist')
+      cy.get('body').then(($body) => {
+        const exists = $body.find('.overflow-y-auto > :nth-child(1) > .items-start').length > 0
+
+        if (!exists && attempt < maxAttempts) {
+          cy.log(`Document not found, attempt ${attempt}/${maxAttempts}, retrying...`)
+          checkForDocument(attempt + 1)
+        } else if (!exists) {
+          throw new Error(`Document not found after ${maxAttempts} attempts. Backend processing may have failed.`)
+        }
+      })
+    }
+
+    checkForDocument()
+
+    // Verify the saved chat appears in knowledge base
+    cy.get('.rounded-xl > .w-80 > .overflow-y-auto > :nth-child(1)', { timeout: 10000 }).should('exist')
 
     // Verify the chat title appears in the knowledge base
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start > .flex-1 > .font-medium', { timeout: 30000 })
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start > .flex-1 > .font-medium', { timeout: 10000 })
       .should('exist')
 
     // Click on the knowledge base item
@@ -174,14 +191,32 @@ describe('Chat', () => {
     // Navigate back to knowledge base
     cy.get('.from-emerald-500').scrollIntoView().wait(500).click({ force: true })
     cy.url().should('include', '/knowledge')
-    cy.wait(5000)
 
-    // Reload the page to ensure fresh data
-    cy.reload()
-    cy.wait(2000)
+    // Polling strategy: Try multiple times with reloads in between
+    const maxAttempts = 5
+    const attemptDelay = 5000
+
+    function checkForDocument(attempt = 1) {
+      cy.wait(attemptDelay)
+      cy.reload()
+      cy.wait(2000)
+
+      cy.get('body').then(($body) => {
+        const exists = $body.find('.overflow-y-auto > :nth-child(1) > .items-start').length > 0
+
+        if (!exists && attempt < maxAttempts) {
+          cy.log(`Document not found, attempt ${attempt}/${maxAttempts}, retrying...`)
+          checkForDocument(attempt + 1)
+        } else if (!exists) {
+          throw new Error(`Document not found after ${maxAttempts} attempts`)
+        }
+      })
+    }
+
+    checkForDocument()
 
     // Click on the saved chat again
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 30000 }).click()
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 10000 }).click()
     cy.wait(3000)
 
     // Click on the inline-flex button to add tag
@@ -202,14 +237,32 @@ describe('Chat', () => {
     // Navigate to knowledge base
     cy.get('.from-emerald-500').scrollIntoView().wait(500).click({ force: true })
     cy.url().should('include', '/knowledge')
-    cy.wait(5000)
 
-    // Reload the page to ensure fresh data
-    cy.reload()
-    cy.wait(2000)
+    // Polling strategy: Try multiple times with reloads in between
+    const maxAttempts = 5
+    const attemptDelay = 5000
+
+    function checkForDocument(attempt = 1) {
+      cy.wait(attemptDelay)
+      cy.reload()
+      cy.wait(2000)
+
+      cy.get('body').then(($body) => {
+        const exists = $body.find('.overflow-y-auto > :nth-child(1) > .items-start').length > 0
+
+        if (!exists && attempt < maxAttempts) {
+          cy.log(`Document not found, attempt ${attempt}/${maxAttempts}, retrying...`)
+          checkForDocument(attempt + 1)
+        } else if (!exists) {
+          throw new Error(`Document not found after ${maxAttempts} attempts`)
+        }
+      })
+    }
+
+    checkForDocument()
 
     // Click on the saved chat to open it
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 30000 }).click()
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 10000 }).click()
     cy.wait(3000)
 
     // Click the edit button
