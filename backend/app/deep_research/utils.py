@@ -103,7 +103,7 @@ async def tavily_search(
     
     # Configure model for structured research question generation
     summarization_model = (
-        configurable_model.with_structured_output(Summary).with_retry(
+        configurable_model.with_structured_output(Summary, method="function_calling").with_retry(
         stop_after_attempt=configurable.max_structured_output_retries
     ).with_config(summary_model_config)
     )

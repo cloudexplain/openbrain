@@ -15,6 +15,13 @@ from typing_extensions import TypedDict
 ###################
 # Structured Outputs
 ###################
+
+class UniversalResponse(BaseModel):
+    """Universal response format that forces all content through structured output."""
+    content: str = Field(
+        description="All response content including tool calls, reasoning, and text. Tool calls should be formatted as JSON on separate lines."
+    )
+
 class ConductResearch(BaseModel):
     """Call this tool to conduct research on a specific topic."""
     research_topic: str = Field(
