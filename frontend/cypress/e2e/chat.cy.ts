@@ -90,18 +90,38 @@ describe('Chat', () => {
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
 
-    // Wait for knowledge base to load and backend processing to complete
-    cy.wait(5000)
+    // Poll the backend API to wait for document processing to complete
+    // This is more reliable than fixed waits, especially in CI environments
+    const pollForDocuments = (retriesLeft = 20, delayMs = 3000) => {
+      if (retriesLeft <= 0) {
+        throw new Error('Document processing timed out after polling')
+      }
 
-    // Verify the saved chat appears in knowledge base (with extended retry for CI)
-    // Note: openbrain backend does additional embedding resizing which can take longer in CI
-    cy.get('.rounded-xl > .w-80 > .overflow-y-auto', { timeout: 30000 }).should('exist')
+      return cy.request({
+        url: 'http://localhost:8000/api/documents',
+        failOnStatusCode: false
+      }).then((response) => {
+        if (response.status === 200 && response.body.documents && response.body.documents.length > 0) {
+          // Documents exist, proceed with test
+          cy.log(`Documents found after ${20 - retriesLeft + 1} attempts`)
+          return
+        } else {
+          // Wait and retry
+          cy.wait(delayMs)
+          return pollForDocuments(retriesLeft - 1, delayMs)
+        }
+      })
+    }
 
-    // Wait for at least one document to appear with polling
-    cy.get('.overflow-y-auto > :nth-child(1)', { timeout: 30000 }).should('exist')
+    // Wait for documents to be processed
+    pollForDocuments()
+
+    // Now verify UI shows the documents
+    cy.get('.rounded-xl > .w-80 > .overflow-y-auto', { timeout: 10000 }).should('exist')
+    cy.get('.overflow-y-auto > :nth-child(1)', { timeout: 10000 }).should('exist')
 
     // Verify the chat title "Chat: New Chat" appears in the knowledge base
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start > .flex-1 > .font-medium', { timeout: 30000 })
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start > .flex-1 > .font-medium', { timeout: 10000 })
       .should('exist')
       .should('contain', 'Chat: New Chat')
 
@@ -165,12 +185,15 @@ describe('Chat', () => {
     // Navigate back to knowledge base
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
-    cy.wait(3000)
 
-    // Wait for documents to load and click on the saved chat again (with extended timeout for CI)
-    cy.get('.overflow-y-auto', { timeout: 30000 }).should('exist')
-    cy.get('.overflow-y-auto > :nth-child(1)', { timeout: 30000 }).should('exist')
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 30000 }).should('exist').click()
+    // Poll for documents to ensure they're loaded
+    cy.request('http://localhost:8000/api/documents').its('body.documents').should('have.length.at.least', 1)
+    cy.wait(2000)
+
+    // Wait for documents to load and click on the saved chat again
+    cy.get('.overflow-y-auto', { timeout: 10000 }).should('exist')
+    cy.get('.overflow-y-auto > :nth-child(1)', { timeout: 10000 }).should('exist')
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 10000 }).should('exist').click()
     cy.wait(2000)
 
     // Click on the inline-flex button to add tag
@@ -191,12 +214,15 @@ describe('Chat', () => {
     // Navigate to knowledge base
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
-    cy.wait(3000)
 
-    // Wait for documents to load and click on the saved chat to open it (with extended timeout for CI)
-    cy.get('.overflow-y-auto', { timeout: 30000 }).should('exist')
-    cy.get('.overflow-y-auto > :nth-child(1)', { timeout: 30000 }).should('exist')
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 30000 }).should('exist').click()
+    // Poll for documents to ensure they're loaded
+    cy.request('http://localhost:8000/api/documents').its('body.documents').should('have.length.at.least', 1)
+    cy.wait(2000)
+
+    // Wait for documents to load and click on the saved chat to open it
+    cy.get('.overflow-y-auto', { timeout: 10000 }).should('exist')
+    cy.get('.overflow-y-auto > :nth-child(1)', { timeout: 10000 }).should('exist')
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 10000 }).should('exist').click()
     cy.wait(2000)
 
     // Click the edit button
@@ -224,11 +250,14 @@ describe('Chat', () => {
     // First: Delete the saved chat from knowledge base
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
-    cy.wait(3000)
+
+    // Poll for documents to ensure they're loaded
+    cy.request('http://localhost:8000/api/documents').its('body.documents').should('have.length.at.least', 1)
+    cy.wait(2000)
 
     // Wait for documents to load and find and delete the saved chat
-    cy.get('.overflow-y-auto', { timeout: 30000 }).should('exist')
-    cy.get('.overflow-y-auto > :nth-child(1)', { timeout: 30000 }).should('exist')
+    cy.get('.overflow-y-auto', { timeout: 10000 }).should('exist')
+    cy.get('.overflow-y-auto > :nth-child(1)', { timeout: 10000 }).should('exist')
     cy.get('.overflow-y-auto > :nth-child(1)').find('button[title*="Delete"], button:contains("Delete"), .delete').first().click()
     cy.wait(2000)
 
