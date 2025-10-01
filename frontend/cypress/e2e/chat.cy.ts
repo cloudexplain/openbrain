@@ -81,8 +81,8 @@ describe('Chat', () => {
     // Click save to knowledge base button
     cy.get('.border-t > .flex > .bg-blue-500').click()
 
-    // Wait for save action to complete
-    cy.wait(1000)
+    // Wait longer for save action to complete (includes backend processing)
+    cy.wait(3000)
   })
 
   it('should navigate to knowledge base and test saved chat', () => {
@@ -90,25 +90,29 @@ describe('Chat', () => {
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
 
-    // Wait for knowledge base to load
-    cy.wait(2000)
+    // Wait for knowledge base to load and backend processing to complete
+    cy.wait(5000)
 
-    // Verify the saved chat appears in knowledge base (with retry for CI)
+    // Verify the saved chat appears in knowledge base (with extended retry for CI)
     // Note: openbrain backend does additional embedding resizing which can take longer in CI
-    cy.get('.rounded-xl > .w-80 > .overflow-y-auto > :nth-child(1)', { timeout: 20000 }).should('exist')
+    cy.get('.rounded-xl > .w-80 > .overflow-y-auto', { timeout: 30000 }).should('exist')
+
+    // Wait for at least one document to appear with polling
+    cy.get('.overflow-y-auto > :nth-child(1)', { timeout: 30000 }).should('exist')
 
     // Verify the chat title "Chat: New Chat" appears in the knowledge base
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start > .flex-1 > .font-medium', { timeout: 20000 })
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start > .flex-1 > .font-medium', { timeout: 30000 })
+      .should('exist')
       .should('contain', 'Chat: New Chat')
 
     // Click on the knowledge base item
     cy.get('.overflow-y-auto > :nth-child(1) > .items-start').click()
 
     // Wait for the item to load
-    cy.wait(1000)
+    cy.wait(2000)
 
     // Verify the chat content appears correctly
-    cy.get('.markdown-content > :nth-child(1)').should('contain', 'Hi')
+    cy.get('.markdown-content > :nth-child(1)', { timeout: 10000 }).should('contain', 'Hi')
     cy.get('.markdown-content > :nth-child(2)').should('exist').and('not.be.empty')
   })
 
@@ -161,11 +165,13 @@ describe('Chat', () => {
     // Navigate back to knowledge base
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
-    cy.wait(2000)
+    cy.wait(3000)
 
-    // Click on the saved chat again (with timeout for CI)
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 20000 }).click()
-    cy.wait(1000)
+    // Wait for documents to load and click on the saved chat again (with extended timeout for CI)
+    cy.get('.overflow-y-auto', { timeout: 30000 }).should('exist')
+    cy.get('.overflow-y-auto > :nth-child(1)', { timeout: 30000 }).should('exist')
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 30000 }).should('exist').click()
+    cy.wait(2000)
 
     // Click on the inline-flex button to add tag
     cy.get('.inline-flex').click({ multiple: true })
@@ -185,11 +191,13 @@ describe('Chat', () => {
     // Navigate to knowledge base
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
-    cy.wait(2000)
+    cy.wait(3000)
 
-    // Click on the saved chat to open it (with timeout for CI)
-    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 20000 }).click()
-    cy.wait(1000)
+    // Wait for documents to load and click on the saved chat to open it (with extended timeout for CI)
+    cy.get('.overflow-y-auto', { timeout: 30000 }).should('exist')
+    cy.get('.overflow-y-auto > :nth-child(1)', { timeout: 30000 }).should('exist')
+    cy.get('.overflow-y-auto > :nth-child(1) > .items-start', { timeout: 30000 }).should('exist').click()
+    cy.wait(2000)
 
     // Click the edit button
     cy.contains('button', 'Edit').click()
@@ -216,12 +224,13 @@ describe('Chat', () => {
     // First: Delete the saved chat from knowledge base
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
-    cy.wait(2000)
+    cy.wait(3000)
 
-    // Find and delete the saved chat
-    cy.get('.overflow-y-auto > :nth-child(1)').should('exist')
+    // Wait for documents to load and find and delete the saved chat
+    cy.get('.overflow-y-auto', { timeout: 30000 }).should('exist')
+    cy.get('.overflow-y-auto > :nth-child(1)', { timeout: 30000 }).should('exist')
     cy.get('.overflow-y-auto > :nth-child(1)').find('button[title*="Delete"], button:contains("Delete"), .delete').first().click()
-    cy.wait(1000)
+    cy.wait(2000)
 
     // Second: Delete the created tag
     cy.get('.from-orange-500').click()
