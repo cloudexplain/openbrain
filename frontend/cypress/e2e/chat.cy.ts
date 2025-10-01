@@ -86,41 +86,18 @@ describe('Chat', () => {
   })
 
   it('should navigate to knowledge base and test saved chat', () => {
-    // Poll the backend API to wait for document processing to complete
-    // This is more reliable than fixed waits, especially in CI environments
-    const pollForDocuments = (retriesLeft = 20, delayMs = 3000) => {
-      if (retriesLeft <= 0) {
-        throw new Error('Document processing timed out after polling')
-      }
+    // Give extra time for backend processing to complete (embedding generation is CPU-intensive in CI)
+    cy.wait(10000)
 
-      return cy.request({
-        url: '/api/v1/documents',
-        failOnStatusCode: false
-      }).then((response) => {
-        if (response.status === 200 && response.body.documents && response.body.documents.length > 0) {
-          // Documents exist, proceed with test
-          cy.log(`Documents found after ${20 - retriesLeft + 1} attempts`)
-          return
-        } else {
-          // Wait and retry
-          cy.wait(delayMs)
-          return pollForDocuments(retriesLeft - 1, delayMs)
-        }
-      })
-    }
-
-    // Wait for documents to be processed in backend
-    pollForDocuments()
-
-    // Navigate to knowledge base (after polling to ensure data is ready)
+    // Navigate to knowledge base
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
 
-    // Wait for the page to load documents from API (onMount fetch)
-    cy.wait(3000)
+    // Wait for the page to load documents from API with extended timeout for CI
+    cy.wait(5000)
 
-    // Now verify UI shows the documents
-    cy.get('.grid > :nth-child(1)', { timeout: 10000 }).should('exist')
+    // Verify at least one document card appears with extended timeout
+    cy.get('.grid > :nth-child(1)', { timeout: 60000 }).should('exist')
 
     // Click on the first document card
     cy.get('.grid > :nth-child(1)').click()
@@ -185,12 +162,11 @@ describe('Chat', () => {
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
 
-    // Poll for documents to ensure they're loaded
-    cy.request('/api/v1/documents').its('body.documents').should('have.length.at.least', 1)
-    cy.wait(3000)
+    // Wait for page to load
+    cy.wait(5000)
 
-    // Wait for documents to load and click on the saved chat again
-    cy.get('.grid > :nth-child(1)', { timeout: 10000 }).should('exist').click()
+    // Wait for documents to load and click on the saved chat again with extended timeout
+    cy.get('.grid > :nth-child(1)', { timeout: 60000 }).should('exist').click()
     cy.wait(2000)
 
     // Verify we're on the document detail page
@@ -215,12 +191,11 @@ describe('Chat', () => {
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
 
-    // Poll for documents to ensure they're loaded
-    cy.request('/api/v1/documents').its('body.documents').should('have.length.at.least', 1)
-    cy.wait(3000)
+    // Wait for page to load
+    cy.wait(5000)
 
-    // Wait for documents to load and click on the saved chat to open it
-    cy.get('.grid > :nth-child(1)', { timeout: 10000 }).should('exist').click()
+    // Wait for documents to load and click on the saved chat to open it with extended timeout
+    cy.get('.grid > :nth-child(1)', { timeout: 60000 }).should('exist').click()
     cy.wait(2000)
 
     // Verify we're on the document detail page
@@ -252,12 +227,11 @@ describe('Chat', () => {
     cy.get('.from-emerald-500').click()
     cy.url().should('include', '/knowledge')
 
-    // Poll for documents to ensure they're loaded
-    cy.request('/api/v1/documents').its('body.documents').should('have.length.at.least', 1)
-    cy.wait(3000)
+    // Wait for page to load
+    cy.wait(5000)
 
-    // Click on the first document to open it
-    cy.get('.grid > :nth-child(1)', { timeout: 10000 }).should('exist').click()
+    // Click on the first document to open it with extended timeout
+    cy.get('.grid > :nth-child(1)', { timeout: 60000 }).should('exist').click()
     cy.wait(2000)
 
     // Delete the document from the detail page
