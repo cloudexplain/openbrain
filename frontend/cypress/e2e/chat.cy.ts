@@ -94,7 +94,7 @@ describe('Chat', () => {
       }
 
       return cy.request({
-        url: 'http://localhost:8000/api/documents',
+        url: '/api/v1/documents',
         failOnStatusCode: false
       }).then((response) => {
         if (response.status === 200 && response.body.documents && response.body.documents.length > 0) {
@@ -186,7 +186,7 @@ describe('Chat', () => {
     cy.url().should('include', '/knowledge')
 
     // Poll for documents to ensure they're loaded
-    cy.request('http://localhost:8000/api/documents').its('body.documents').should('have.length.at.least', 1)
+    cy.request('/api/v1/documents').its('body.documents').should('have.length.at.least', 1)
     cy.wait(3000)
 
     // Wait for documents to load and click on the saved chat again
@@ -216,7 +216,7 @@ describe('Chat', () => {
     cy.url().should('include', '/knowledge')
 
     // Poll for documents to ensure they're loaded
-    cy.request('http://localhost:8000/api/documents').its('body.documents').should('have.length.at.least', 1)
+    cy.request('/api/v1/documents').its('body.documents').should('have.length.at.least', 1)
     cy.wait(3000)
 
     // Wait for documents to load and click on the saved chat to open it
@@ -253,7 +253,7 @@ describe('Chat', () => {
     cy.url().should('include', '/knowledge')
 
     // Poll for documents to ensure they're loaded
-    cy.request('http://localhost:8000/api/documents').its('body.documents').should('have.length.at.least', 1)
+    cy.request('/api/v1/documents').its('body.documents').should('have.length.at.least', 1)
     cy.wait(3000)
 
     // Click on the first document to open it
