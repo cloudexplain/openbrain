@@ -61,6 +61,8 @@ services:
       dockerfile: Dockerfile.prod
     image: secondbrain-backend:prod
     container_name: secondbrain-backend
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://secondbrain:secondbrain_password@postgres:5432/secondbrain
     ports:
