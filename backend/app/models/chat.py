@@ -53,7 +53,7 @@ class Folder(Base):
     __tablename__ = "folders"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False)  # No FK constraint since users table doesn't exist
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     color = Column(String(7), default='#4F46E5', nullable=False)  # Default indigo color
@@ -61,8 +61,7 @@ class Folder(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    # Relationships
-    user = relationship("User", back_populates="folders")
+    # Relationships (no user relationship since User model doesn't exist)
     parent = relationship("Folder", remote_side=[id], back_populates="children")
     children = relationship("Folder", back_populates="parent", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="folder")
@@ -72,7 +71,7 @@ class Document(Base):
     __tablename__ = "documents"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False)  # No FK constraint since users table doesn't exist
     folder_id = Column(UUID(as_uuid=True), ForeignKey("folders.id"), nullable=True)
     title = Column(String(255), nullable=False)
     source_type = Column(String(50), nullable=False)  # 'chat', 'file', 'url', etc.
@@ -89,8 +88,7 @@ class Document(Base):
     # Document metadata (JSON)
     document_metadata = Column(Text, nullable=True)  # JSON string for source-specific metadata
 
-    # Relationships
-    user = relationship("User", back_populates="documents")
+    # Relationships (no user relationship since User model doesn't exist)
     folder = relationship("Folder", back_populates="documents")
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
 

@@ -262,9 +262,14 @@ async def save_edited_chat_to_knowledge(
         if mode == "document":
             # Single document mode - just save the content as is
             content = request.get("content", "")
-            
+
+            # Use default user ID (no user management implemented yet)
+            from uuid import UUID as UUIDType
+            DEFAULT_USER_ID = UUIDType("00000000-0000-0000-0000-000000000001")
+
             # Create document
             chat_document = Document(
+                user_id=DEFAULT_USER_ID,
                 title=title,
                 source_type="chat",
                 source_id=str(chat_id),
@@ -311,9 +316,14 @@ async def save_edited_chat_to_knowledge(
         else:
             # Messages mode - reconstruct from edited messages
             messages = request.get("messages", [])
-            
+
+            # Use default user ID (no user management implemented yet)
+            from uuid import UUID as UUIDType
+            DEFAULT_USER_ID = UUIDType("00000000-0000-0000-0000-000000000001")
+
             # Create document
             chat_document = Document(
+                user_id=DEFAULT_USER_ID,
                 title=title,
                 source_type="chat",
                 source_id=str(chat_id),

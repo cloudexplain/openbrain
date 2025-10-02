@@ -17,11 +17,11 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Create folders table
+    # Create folders table (without user FK since users table doesn't exist)
     op.create_table(
         'folders',
         sa.Column('id', sa.dialects.postgresql.UUID(as_uuid=True), primary_key=True, default=sa.text('uuid_generate_v4()')),
-        sa.Column('user_id', sa.dialects.postgresql.UUID(as_uuid=True), sa.ForeignKey('users.id'), nullable=False),
+        sa.Column('user_id', sa.dialects.postgresql.UUID(as_uuid=True), nullable=False),  # No FK constraint
         sa.Column('name', sa.String(255), nullable=False),
         sa.Column('description', sa.Text, nullable=True),
         sa.Column('color', sa.String(7), default='#4F46E5', nullable=False),  # Default indigo color

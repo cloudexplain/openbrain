@@ -24,7 +24,6 @@
   import TagSelector from "./TagSelector.svelte";
   import TipTapEditor from "./TipTapEditor.svelte";
   import { invalidateAll } from "$app/navigation";
-  import { authService } from "$lib/stores/auth";
 
   const dispatch = createEventDispatcher();
 
@@ -173,9 +172,7 @@
     documentCache.clear();
     // Refresh documents from server
     try {
-      const response = await fetch("/api/v1/documents", {
-        headers: authService.getAuthHeaders(),
-      });
+      const response = await fetch("/api/v1/documents");
       if (response.ok) {
         const data = await response.json();
         internalDocuments = data.documents || data;
@@ -196,9 +193,7 @@
 
   async function loadFolders() {
     try {
-      const response = await fetch("/api/v1/folders/", {
-        headers: authService.getAuthHeaders(),
-      });
+      const response = await fetch("/api/v1/folders/");
       if (response.ok) {
         folders = await response.json();
         console.log("Loaded folders:", folders);
@@ -240,7 +235,6 @@
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...authService.getAuthHeaders(),
         },
         body: JSON.stringify({
           name: newFolderName,
@@ -312,7 +306,6 @@
     try {
       const response = await fetch(`/api/v1/folders/${folderToDelete.id}`, {
         method: "DELETE",
-        headers: authService.getAuthHeaders(),
       });
 
       if (response.ok) {
@@ -369,7 +362,6 @@
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          ...authService.getAuthHeaders(),
         },
       });
 
@@ -808,7 +800,6 @@
             method: "PUT",
             headers: {
               "Content-Type": "application/json",
-              ...authService.getAuthHeaders(),
             },
           });
 
@@ -917,7 +908,6 @@
             method: "PUT",
             headers: {
               "Content-Type": "application/json",
-              ...authService.getAuthHeaders(),
             },
           });
 
@@ -1003,7 +993,6 @@
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          ...authService.getAuthHeaders(),
         },
       });
 
@@ -1044,7 +1033,6 @@
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          ...authService.getAuthHeaders(),
         },
       });
 
@@ -1139,7 +1127,6 @@
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              ...authService.getAuthHeaders(),
             },
             body: JSON.stringify({
               name: folder.name,
@@ -1236,7 +1223,6 @@
 
           const fetchResponse = await fetch("/api/v1/documents/upload", {
             method: "POST",
-            headers: authService.getAuthHeaders(),
             body: formData,
           });
 
@@ -1500,7 +1486,6 @@
 
         const fetchResponse = await fetch("/api/v1/documents/upload", {
           method: "POST",
-          headers: authService.getAuthHeaders(),
           body: formData,
         });
 
@@ -1542,7 +1527,6 @@
 
             const fetchResponse = await fetch("/api/v1/documents/upload", {
               method: "POST",
-              headers: authService.getAuthHeaders(),
               body: formData,
             });
 

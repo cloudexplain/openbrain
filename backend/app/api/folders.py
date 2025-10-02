@@ -6,22 +6,22 @@ import uuid
 
 from ..models.database import get_db
 from ..models.chat import Folder, Document
-from ..models.user import User
 from ..schemas.folder import FolderCreate, FolderUpdate, FolderMove, Folder as FolderSchema
-from ..core.deps import get_current_user
 
 router = APIRouter()
+
+# TODO: Add proper user authentication when implemented
+DEFAULT_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 @router.get("/", response_model=List[FolderSchema])
 async def get_folders(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db)
 ):
     """Get all folders for the current user, organized hierarchically"""
     # Get all folders for the user
     result = await db.execute(
-        select(Folder).where(Folder.user_id == current_user.id).order_by(Folder.name)
+        select(Folder).where(Folder.user_id == DEFAULT_USER_ID).order_by(Folder.name)
     )
     folders = result.scalars().all()
 
@@ -30,7 +30,7 @@ async def get_folders(
     for folder in folders:
         doc_count_result = await db.execute(
             select(func.count(Document.id)).where(
-                and_(Document.folder_id == folder.id, Document.user_id == current_user.id)
+                and_(Document.folder_id == folder.id, Document.user_id == DEFAULT_USER_ID)
             )
         )
         doc_count = doc_count_result.scalar() or 0
@@ -67,15 +67,14 @@ async def get_folders(
 @router.post("/", response_model=FolderSchema)
 async def create_folder(
     folder: FolderCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db)
 ):
     """Create a new folder"""
     # Check if parent exists and belongs to user
     if folder.parent_id:
         parent_result = await db.execute(
             select(Folder).where(
-                and_(Folder.id == folder.parent_id, Folder.user_id == current_user.id)
+                and_(Folder.id == folder.parent_id, Folder.user_id == DEFAULT_USER_ID)
             )
         )
         parent_folder = parent_result.scalar_one_or_none()
@@ -89,7 +88,7 @@ async def create_folder(
     existing_result = await db.execute(
         select(Folder).where(
             and_(
-                Folder.user_id == current_user.id,
+                Folder.user_id == DEFAULT_USER_ID,
                 Folder.parent_id == folder.parent_id,
                 Folder.name == folder.name
             )
@@ -105,7 +104,7 @@ async def create_folder(
 
     # Create new folder
     db_folder = Folder(
-        user_id=current_user.id,
+        user_id=DEFAULT_USER_ID,
         name=folder.name,
         description=folder.description,
         color=folder.color,
@@ -134,13 +133,12 @@ async def create_folder(
 @router.get("/{folder_id}", response_model=FolderSchema)
 async def get_folder(
     folder_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db)
 ):
     """Get a specific folder"""
     result = await db.execute(
         select(Folder).where(
-            and_(Folder.id == folder_id, Folder.user_id == current_user.id)
+            and_(Folder.id == folder_id, Folder.user_id == DEFAULT_USER_ID)
         )
     )
     folder = result.scalar_one_or_none()
@@ -154,7 +152,7 @@ async def get_folder(
     # Get document count
     doc_count_result = await db.execute(
         select(func.count(Document.id)).where(
-            and_(Document.folder_id == folder_id, Document.user_id == current_user.id)
+            and_(Document.folder_id == folder_id, Document.user_id == DEFAULT_USER_ID)
         )
     )
     doc_count = doc_count_result.scalar() or 0
@@ -177,13 +175,12 @@ async def get_folder(
 async def update_folder(
     folder_id: uuid.UUID,
     folder_update: FolderUpdate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db)
 ):
     """Update a folder"""
     result = await db.execute(
         select(Folder).where(
-            and_(Folder.id == folder_id, Folder.user_id == current_user.id)
+            and_(Folder.id == folder_id, Folder.user_id == DEFAULT_USER_ID)
         )
     )
     folder = result.scalar_one_or_none()
@@ -205,7 +202,7 @@ async def update_folder(
         if folder_update.parent_id:
             parent_result = await db.execute(
                 select(Folder).where(
-                    and_(Folder.id == folder_update.parent_id, Folder.user_id == current_user.id)
+                    and_(Folder.id == folder_update.parent_id, Folder.user_id == DEFAULT_USER_ID)
                 )
             )
             parent_folder = parent_result.scalar_one_or_none()
@@ -226,7 +223,7 @@ async def update_folder(
     # Get document count
     doc_count_result = await db.execute(
         select(func.count(Document.id)).where(
-            and_(Document.folder_id == folder_id, Document.user_id == current_user.id)
+            and_(Document.folder_id == folder_id, Document.user_id == DEFAULT_USER_ID)
         )
     )
     doc_count = doc_count_result.scalar() or 0
@@ -248,13 +245,12 @@ async def update_folder(
 @router.delete("/{folder_id}")
 async def delete_folder(
     folder_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db)
 ):
     """Delete a folder and move its contents to parent or root"""
     result = await db.execute(
         select(Folder).where(
-            and_(Folder.id == folder_id, Folder.user_id == current_user.id)
+            and_(Folder.id == folder_id, Folder.user_id == DEFAULT_USER_ID)
         )
     )
     folder = result.scalar_one_or_none()
@@ -268,7 +264,7 @@ async def delete_folder(
     # Move all child folders to the parent of the deleted folder
     child_folders_result = await db.execute(
         select(Folder).where(
-            and_(Folder.parent_id == folder_id, Folder.user_id == current_user.id)
+            and_(Folder.parent_id == folder_id, Folder.user_id == DEFAULT_USER_ID)
         )
     )
     child_folders = child_folders_result.scalars().all()
@@ -279,7 +275,7 @@ async def delete_folder(
     # Move all documents to the parent of the deleted folder
     documents_result = await db.execute(
         select(Document).where(
-            and_(Document.folder_id == folder_id, Document.user_id == current_user.id)
+            and_(Document.folder_id == folder_id, Document.user_id == DEFAULT_USER_ID)
         )
     )
     documents = documents_result.scalars().all()
@@ -298,13 +294,12 @@ async def delete_folder(
 async def move_folder(
     folder_id: uuid.UUID,
     move_data: FolderMove,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db)
 ):
     """Move a folder to a different parent"""
     result = await db.execute(
         select(Folder).where(
-            and_(Folder.id == folder_id, Folder.user_id == current_user.id)
+            and_(Folder.id == folder_id, Folder.user_id == DEFAULT_USER_ID)
         )
     )
     folder = result.scalar_one_or_none()
@@ -325,7 +320,7 @@ async def move_folder(
 
         parent_result = await db.execute(
             select(Folder).where(
-                and_(Folder.id == move_data.parent_id, Folder.user_id == current_user.id)
+                and_(Folder.id == move_data.parent_id, Folder.user_id == DEFAULT_USER_ID)
             )
         )
         parent_folder = parent_result.scalar_one_or_none()
@@ -343,7 +338,7 @@ async def move_folder(
     # Get document count
     doc_count_result = await db.execute(
         select(func.count(Document.id)).where(
-            and_(Document.folder_id == folder_id, Document.user_id == current_user.id)
+            and_(Document.folder_id == folder_id, Document.user_id == DEFAULT_USER_ID)
         )
     )
     doc_count = doc_count_result.scalar() or 0

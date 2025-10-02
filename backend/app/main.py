@@ -10,8 +10,7 @@ from app.config import Settings
 settings = get_settings()
 import logging
 import asyncio
-from app.api import chat, tags, document_tags, auth, documents, deep_research, folders
-from app.core.scheduler import session_cleanup_scheduler
+from app.api import chat, tags, document_tags, documents, deep_research, folders
 import logging
 
 # Configure logging

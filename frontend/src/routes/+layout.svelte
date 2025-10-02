@@ -4,7 +4,6 @@
   import { goto } from "$app/navigation";
   import favicon from "$lib/assets/favicon.svg";
   import "../app.pcss";
-  import { authStore, authService } from "$lib/stores/auth";
   import Sidebar from "$lib/components/Sidebar.svelte";
   import KnowledgeBase from "$lib/components/KnowledgeBase.svelte";
   import TagManager from "$lib/components/TagManager.svelte";
@@ -12,9 +11,6 @@
   import type { ChatListItem } from "$lib/api";
 
   let { children, data } = $props();
-
-  // Public routes that don't require authentication
-  const publicRoutes = ["/login", "/signup", "/verify-email"];
 
   // Layout state
   let chats = $state(data?.chats || []);
@@ -31,25 +27,6 @@
     duration: number;
   }> = [];
   let notificationId = 0;
-
-  onMount(async () => {
-    // Initialize auth service
-    await authService.init();
-
-    // Subscribe to auth changes
-    authStore.subscribe((auth) => {
-      if (!auth.isLoading) {
-        const currentPath = $page.url.pathname;
-        const isPublicRoute = publicRoutes.includes(currentPath);
-
-        if (!auth.isAuthenticated && !isPublicRoute) {
-          goto("/login");
-        } else if (auth.isAuthenticated && currentPath === "/login") {
-          goto("/");
-        }
-      }
-    });
-  });
 
   function showNotification(
     message: string,
@@ -71,7 +48,6 @@
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...authService.getAuthHeaders(),
         },
         body: JSON.stringify({
           title: "New Chat",
@@ -112,7 +88,6 @@
       // Delete the chat from the server
       const response = await fetch(`/api/v1/chats/${chatId}`, {
         method: "DELETE",
-        headers: authService.getAuthHeaders(),
       });
 
       if (!response.ok) {
@@ -159,10 +134,8 @@
     goto("/");
   }
 
-  // Reactive statements using Svelte 5 syntax
-  let isPublicRoute = $derived(publicRoutes.includes($page.url.pathname));
-  // Show full layout unless we're on a public route (login, signup, etc.)
-  let showFullLayout = $derived(!isPublicRoute);
+  // Show full layout always (no auth routes)
+  let showFullLayout = $derived(true);
 
   // Effect to update data from server when it changes
   $effect(() => {
@@ -201,7 +174,7 @@
 </svelte:head>
 
 {#if showFullLayout}
-  <!-- Full layout for authenticated users -->
+  <!-- Full layout -->
   <main class="flex h-screen bg-gray-100">
     <!-- Sidebar -->
     <div
@@ -248,7 +221,4 @@
       {/each}
     </div>
   </main>
-{:else}
-  <!-- Simple layout for public pages -->
-  {@render children?.()}
 {/if}

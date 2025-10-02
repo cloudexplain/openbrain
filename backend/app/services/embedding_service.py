@@ -187,9 +187,14 @@ class EmbeddingService:
         chunks = self.chunk_chat_conversation(chat)
         if not chunks:
             return None, []
-        
+
+        # Use default user ID (no user management implemented yet)
+        from uuid import UUID
+        DEFAULT_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+
         # Create Document for this chat
         chat_document = Document(
+            user_id=DEFAULT_USER_ID,
             title=f"Chat: {chat.title}",
             source_type="chat",
             source_id=str(chat.id),
@@ -382,9 +387,13 @@ class EmbeddingService:
         # Create document record
         document_id = uuid4()
 
-        # No user management for uploaded files
+        # Use default user ID (no user management implemented yet)
+        from uuid import UUID
+        DEFAULT_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+
         document = Document(
             id=document_id,
+            user_id=DEFAULT_USER_ID,
             title=original_filename or f"Uploaded Document {document_id}",
             source_type="file",
             source_id=str(document_id),

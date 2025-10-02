@@ -7,13 +7,15 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 import json
 from pathlib import Path
+import uuid
 
 from app.models.database import get_db
-from app.models.user import User
-from app.core.deps import get_current_user
 from app.models.chat import Document, DocumentChunk, Folder
 
 router = APIRouter()
+
+# TODO: Add proper user authentication when implemented
+DEFAULT_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 @router.get("/documents/{document_id}")
@@ -160,21 +162,9 @@ async def list_documents(
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db)
 ):
-    """List all documents with chunk counts"""
-
-    # Query to get documents and their chunk counts
-    query = (
-        select(
-            Document,
-            func.count(DocumentChunk.id).label("chunk_count")
-        )
-        .outerjoin(DocumentChunk, Document.id == DocumentChunk.document_id)
-        .group_by(Document.id)
-    )
-    
     """List all documents for the current user"""
 
-    query = select(Document).where(Document.user_id == current_user.id)
+    query = select(Document).where(Document.user_id == DEFAULT_USER_ID)
 
     # Apply source type filter if provided
     if source_type:
@@ -204,7 +194,7 @@ async def list_documents(
 
     # Format response
     docs_data = []
-    for doc, chunk_count in documents_with_counts:
+    for doc in documents:
         metadata = json.loads(doc.document_metadata) if doc.document_metadata else {}
 
         # Debug: Check what folder_id we have
@@ -224,7 +214,7 @@ async def list_documents(
             "folder_id": str(doc.folder_id) if doc.folder_id else None
         })
     return {
-        "total": total,
+        "total": len(docs_data),
         "offset": offset,
         "limit": limit,
         "documents": docs_data
@@ -235,14 +225,13 @@ async def list_documents(
 async def move_document(
     document_id: UUID,
     folder_id: Optional[UUID] = None,
-    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Move a document to a different folder"""
 
     # Get document and verify ownership
     result = await db.execute(
-        select(Document).where(Document.id == document_id, Document.user_id == current_user.id)
+        select(Document).where(Document.id == document_id, Document.user_id == DEFAULT_USER_ID)
     )
     document = result.scalar_one_or_none()
 
@@ -252,7 +241,7 @@ async def move_document(
     # Verify folder exists and belongs to user (if folder_id provided)
     if folder_id:
         folder_result = await db.execute(
-            select(Folder).where(Folder.id == folder_id, Folder.user_id == current_user.id)
+            select(Folder).where(Folder.id == folder_id, Folder.user_id == DEFAULT_USER_ID)
         )
         folder = folder_result.scalar_one_or_none()
 
