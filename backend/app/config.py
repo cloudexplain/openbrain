@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     embedding_dim: Optional[int] = None
     # Security Configuration
     secret_key: str = os.getenv("SECRET_KEY", "your-secret-key-here")
+    search_api_key: str = os.getenv("SEARCH_API_KEY", "your-search-api-key-here")
 
     api_v1_str: str = "/api/v1"
 

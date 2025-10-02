@@ -1,4 +1,7 @@
-"""Configuration management for the Open Deep Research system."""
+"""Configuration management for the Open Deep Research system.
+
+Adapted from: https://github.com/langchain-ai/open_deep_research
+"""
 
 import os
 from enum import Enum
@@ -52,14 +55,14 @@ class Configuration(BaseModel):
         }
     )
     structured_output_method: str = Field(
-        default="json_schema",
+        default="function_calling",
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": "json_schema",
+                "default": "function_calling",
                 "description": "Method to use for structured outputs. Use 'function_calling' for Azure OpenAI or older models.",
                 "options": [
-                    {"label": "JSON Schema (default)", "value": "json_schema"},
+                    {"label": "JSON Schema", "value": "json_schema"},
                     {"label": "Function Calling (Azure/older models)", "value": "function_calling"}
                 ]
             }
@@ -76,13 +79,13 @@ class Configuration(BaseModel):
         }
     )
     max_concurrent_research_units: int = Field(
-        default=5,
+        default=1,
         metadata={
             "x_oap_ui_config": {
                 "type": "slider",
-                "default": 5,
+                "default": 1,
                 "min": 1,
-                "max": 20,
+                "max": 5,
                 "step": 1,
                 "description": "Maximum number of research units to run concurrently. This will allow the researcher to use multiple sub-agents to conduct research. Note: with more concurrency, you may run into rate limits."
             }
@@ -106,26 +109,26 @@ class Configuration(BaseModel):
         }
     )
     max_researcher_iterations: int = Field(
-        default=6,
+        default=2,
         metadata={
             "x_oap_ui_config": {
                 "type": "slider",
-                "default": 6,
+                "default": 2,
                 "min": 1,
-                "max": 10,
+                "max": 5,
                 "step": 1,
                 "description": "Maximum number of research iterations for the Research Supervisor. This is the number of times the Research Supervisor will reflect on the research and ask follow-up questions."
             }
         }
     )
     max_react_tool_calls: int = Field(
-        default=10,
+        default=3,
         metadata={
             "x_oap_ui_config": {
                 "type": "slider",
-                "default": 10,
+                "default": 3,
                 "min": 1,
-                "max": 30,
+                "max": 10,
                 "step": 1,
                 "description": "Maximum number of tool calling iterations to make in a single researcher step."
             }
@@ -228,6 +231,7 @@ class Configuration(BaseModel):
     azure_openai_api_version: Optional[str] = None
     azure_openai_deployment_name: Optional[str] = None
     azure_openai_api_key: Optional[str] = None
+    search_api_key: Optional[str] = None
 
     # MCP server configuration
     mcp_config: Optional[MCPConfig] = Field(

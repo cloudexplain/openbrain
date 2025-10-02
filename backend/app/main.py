@@ -8,9 +8,10 @@ from app.services.reembed_queue import start_worker
 from app.config import Settings
 
 settings = get_settings()
-from app.api import chat, tags, document_tags, documents, deep_research
 import logging
 import asyncio
+from app.api import chat, tags, document_tags, auth, documents, deep_research, folders
+from app.core.scheduler import session_cleanup_scheduler
 import logging
 
 # Configure logging
@@ -126,6 +127,13 @@ app.include_router(
     deep_research.router,
     prefix=settings.api_v1_str + "/deep-research",
     tags=["deep-research"]
+)
+
+# Folder management routes
+app.include_router(
+    folders.router,
+    prefix=settings.api_v1_str + "/folders",
+    tags=["folders"]
 )
 
 

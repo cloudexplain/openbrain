@@ -1,4 +1,7 @@
-"""Utility functions and helpers for the Deep Research agent."""
+"""Utility functions and helpers for the Deep Research agent.
+
+Adapted from: https://github.com/langchain-ai/open_deep_research
+"""
 
 import asyncio
 import logging
@@ -32,6 +35,10 @@ from tavily import AsyncTavilyClient
 from app.deep_research.configuration import Configuration, SearchAPI
 from app.deep_research.prompts import summarize_webpage_prompt
 from app.deep_research.state import ResearchComplete, Summary
+
+configurable_model = init_chat_model(
+    configurable_fields=("model", "max_tokens", "api_key", "azure_endpoint", "api_version", "deployment_name"),
+)
 
 ##########################
 # Tavily Search Tool Utils
@@ -82,16 +89,25 @@ async def tavily_search(
     max_char_to_include = configurable.max_content_length
     
     # Initialize summarization model with retry logic
-    model_api_key = get_api_key_for_model(configurable.summarization_model, config)
-    summarization_model = init_chat_model(
-        model=configurable.summarization_model,
-        max_tokens=configurable.summarization_model_max_tokens,
-        api_key=model_api_key,
-        tags=["langsmith:nostream"]
-    ).with_structured_output(Summary).with_retry(
-        stop_after_attempt=configurable.max_structured_output_retries
-    )
+    # model_api_key = get_api_key_for_model(configurable.summarization_model, config)
+    # todo: we should use the concrete summary stuff in here
+    summary_model_config = {
+        "model": configurable.summarization_model,
+        "max_tokens": configurable.research_model_max_tokens,
+        "api_key": configurable.azure_openai_api_key,
+        "azure_endpoint": configurable.azure_openai_endpoint,
+        "api_version": configurable.azure_openai_api_version,
+        "deployment_name": configurable.azure_openai_deployment_name,
+        "tags": ["langsmith:nostream"]
+    }
     
+    # Configure model for structured research question generation
+    summarization_model = (
+        configurable_model.with_structured_output(Summary, method="function_calling").with_retry(
+        stop_after_attempt=configurable.max_structured_output_retries
+    ).with_config(summary_model_config)
+    )
+
     # Step 4: Create summarization tasks (skip empty content)
     async def noop():
         """No-op function for results without raw content."""
@@ -917,9 +933,10 @@ def get_tavily_api_key(config: RunnableConfig):
     """Get Tavily API key from environment or config."""
     should_get_from_config = os.getenv("GET_API_KEYS_FROM_CONFIG", "false")
     if should_get_from_config.lower() == "true":
-        api_keys = config.get("configurable", {}).get("apiKeys", {})
+        api_keys = config.get("configurable", {}).get("search_api_key", {})
         if not api_keys:
             return None
         return api_keys.get("TAVILY_API_KEY")
     else:
-        return os.getenv("TAVILY_API_KEY")
+        api_key = config.get("configurable", {}).get("search_api_key", {})
+        return api_key or os.getenv("TAVILY_API_KEY")

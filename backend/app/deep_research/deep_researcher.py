@@ -1,7 +1,13 @@
-"""Main LangGraph implementation for the Deep Research agent."""
+"""Main LangGraph implementation for the Deep Research agent.
+
+Adapted from: https://github.com/langchain-ai/open_deep_research
+"""
 
 import asyncio
+import logging
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import (
@@ -38,6 +44,7 @@ from app.deep_research.state import (
     ResearcherState,
     ResearchQuestion,
     SupervisorState,
+    UniversalResponse,
 )
 from app.deep_research.utils import (
     anthropic_websearch_called,
@@ -51,6 +58,7 @@ from app.deep_research.utils import (
     remove_up_to_last_ai_message,
     think_tool,
 )
+from app.deep_research.parse_tool_calls import ensure_tool_calls
 
 # Initialize a configurable model that we will use throughout the agent
 configurable_model = init_chat_model(
@@ -89,8 +97,6 @@ async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Comman
     }
     
     # Configure model with structured output and retry logic
-    
-    get_api_key_for_model(configurable.research_model, config)
     clarification_model = (
         configurable_model
         .with_structured_output(ClarifyWithUser, method="function_calling")
@@ -160,6 +166,8 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> Com
         date=get_today_str()
     )
     response = await research_model.ainvoke([HumanMessage(content=prompt_content)])
+    # TODO: figure out if we could simply use .with_structured_output() with method="function_calling" instead of manual parsing
+    ensure_tool_calls(response)
     
     # Step 3: Initialize supervisor with research brief and instructions
     supervisor_system_prompt = lead_researcher_prompt.format(
@@ -209,20 +217,24 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
         "tags": ["langsmith:nostream"]
     }
     
-    # Available tools: research delegation, completion signaling, and strategic thinking
-    lead_researcher_tools = [ConductResearch, ResearchComplete, think_tool]
-    
-    # Configure model with tools, retry logic, and model settings
+    # Use UniversalResponse for consistent structured output instead of bind_tools
     research_model = (
         configurable_model
-        .bind_tools(lead_researcher_tools)
+        .with_structured_output(UniversalResponse, method="function_calling")
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
         .with_config(research_model_config)
     )
     
     # Step 2: Generate supervisor response based on current context
     supervisor_messages = state.get("supervisor_messages", [])
-    response = await research_model.ainvoke(supervisor_messages)
+    universal_response = await research_model.ainvoke(supervisor_messages)
+
+    # Convert UniversalResponse to AIMessage with tool calls parsed from content
+    from langchain_core.messages import AIMessage
+    response = AIMessage(content=universal_response.content)
+
+    # Parse tool calls from the structured content
+    ensure_tool_calls(response)
     
     # Step 3: Update state and proceed to tool execution
     return Command(
@@ -253,6 +265,7 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
     supervisor_messages = state.get("supervisor_messages", [])
     research_iterations = state.get("research_iterations", 0)
     most_recent_message = supervisor_messages[-1]
+    ensure_tool_calls(most_recent_message)
     
     # Define exit criteria for research phase
     exceeded_allowed_iterations = research_iterations > configurable.max_researcher_iterations
@@ -295,7 +308,7 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
         tool_call for tool_call in most_recent_message.tool_calls 
         if tool_call["name"] == "ConductResearch"
     ]
-    
+
     if conduct_research_calls:
         try:
             # Limit concurrent research units to prevent resource exhaustion
@@ -342,15 +355,21 @@ async def supervisor_tools(state: SupervisorState, config: RunnableConfig) -> Co
                 
         except Exception as e:
             # Handle research execution errors
-            if is_token_limit_exceeded(e, configurable.research_model) or True:
-                # Token limit exceeded or other error - end research phase
+            if is_token_limit_exceeded(e, configurable.research_model):
+                # Token limit exceeded - end research phase gracefully
+                logger.warning(f"Token limit exceeded during research: {str(e)}")
                 return Command(
                     goto=END,
                     update={
                         "notes": get_notes_from_tool_calls(supervisor_messages),
-                        "research_brief": state.get("research_brief", "")
+                        "research_brief": state.get("research_brief", ""),
+                        "error": f"Research stopped due to token limit: {str(e)}"
                     }
                 )
+            else:
+                # Other errors should be propagated up to be caught by the service layer
+                logger.error(f"Critical error during research execution: {str(e)}")
+                raise e
     
     # Step 3: Return command with all tool results
     update_payload["supervisor_messages"] = all_tool_messages
@@ -416,17 +435,24 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
         date=get_today_str()
     )
     
-    # Configure model with tools, retry logic, and settings
+    # Use UniversalResponse for consistent structured output instead of bind_tools
     research_model = (
         configurable_model
-        .bind_tools(tools)
+        .with_structured_output(UniversalResponse, method="function_calling")
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
         .with_config(research_model_config)
     )
     
     # Step 3: Generate researcher response with system context
     messages = [SystemMessage(content=researcher_prompt)] + researcher_messages
-    response = await research_model.ainvoke(messages)
+    universal_response = await research_model.ainvoke(messages)
+
+    # Convert UniversalResponse to AIMessage with tool calls parsed from content
+    from langchain_core.messages import AIMessage
+    response = AIMessage(content=universal_response.content)
+
+    # Parse tool calls from the structured content
+    ensure_tool_calls(response)
     
     # Step 4: Update state and proceed to tool execution
     return Command(
@@ -480,14 +506,14 @@ async def researcher_tools(state: ResearcherState, config: RunnableConfig) -> Co
     # Step 2: Handle other tool calls (search, MCP tools, etc.)
     tools = await get_all_tools(config)
     tools_by_name = {
-        tool.name if hasattr(tool, "name") else tool.get("name", "web_search"): tool 
+        tool.name if hasattr(tool, "name") else tool.get("name", "web_search"): tool
         for tool in tools
     }
     
     # Execute all tool calls in parallel
     tool_calls = most_recent_message.tool_calls
     tool_execution_tasks = [
-        execute_tool_safely(tools_by_name[tool_call["name"]], tool_call["args"], config) 
+        execute_tool_safely(tools_by_name[tool_call["name"]], tool_call["args"], config)
         for tool_call in tool_calls
     ]
     observations = await asyncio.gather(*tool_execution_tasks)

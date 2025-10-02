@@ -580,6 +580,8 @@ async def get_documents(
     from sqlalchemy import select, func
     from sqlalchemy.orm import selectinload
     from app.models.chat import Document, DocumentChunk
+
+    print("🔍 [chat.py] GET /documents endpoint called")
     
     try:
         # Get documents with chunk count using a subquery for better performance
@@ -605,6 +607,7 @@ async def get_documents(
                 "created_at": doc.created_at.isoformat() if doc.created_at else None,
                 "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
                 "chunk_count": chunk_count,
+                "folder_id": str(doc.folder_id) if doc.folder_id else None,
                 "metadata": json.loads(doc.document_metadata) if doc.document_metadata else {}
             }
             for doc, chunk_count in documents_with_counts

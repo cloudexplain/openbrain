@@ -72,6 +72,7 @@ export interface Document {
 	updated_at: string;
 	chunk_count: number;
 	metadata: Record<string, any>;
+	folder_id?: string | null;
 }
 
 export interface DocumentDetail extends Document {
@@ -306,7 +307,8 @@ class ApiClient {
 
 	async getDocuments(): Promise<Document[]> {
 		const response = await this.request('/documents');
-		return await response.json();
+		const result = await response.json();
+		return result.documents || [];
 	}
 
 	async getDocument(documentId: string): Promise<DocumentDetail> {

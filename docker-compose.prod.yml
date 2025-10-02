@@ -61,6 +61,8 @@ services:
       dockerfile: Dockerfile.prod
     image: secondbrain-backend:prod
     container_name: secondbrain-backend
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://secondbrain:secondbrain_password@postgres:5432/secondbrain
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
@@ -83,12 +85,12 @@ services:
     # todo: remove, once it works
     # command: sleep infinity
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 40s
 
   # SvelteKit Frontend
   frontend:
