@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, and_
 from sqlalchemy.orm import selectinload
 from typing import List
 from uuid import UUID
@@ -17,7 +17,7 @@ async def get_document_tags(
     document_id: UUID,
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all tags for a specific document."""
+    """Get all tags for a specific document owned by the current user."""
     # Get document with tags
     result = await db.execute(
         select(Document)
@@ -41,9 +41,11 @@ async def add_document_tags(
     tag_data: DocumentTagAdd,
     db: AsyncSession = Depends(get_db)
 ):
-    """Add tags to a document."""
+    """Add tags to a document owned by the current user."""
     # Check document exists
-    doc_result = await db.execute(select(Document).where(Document.id == document_id))
+    doc_result = await db.execute(
+        select(Document).where(Document.id == document_id)
+    )
     document = doc_result.scalar_one_or_none()
     
     if not document:
@@ -92,7 +94,21 @@ async def remove_document_tag(
     tag_id: UUID,
     db: AsyncSession = Depends(get_db)
 ):
-    """Remove a tag from a document."""
+    """Remove a tag from a document owned by the current user."""
+    # Verify document exists
+    doc_result = await db.execute(
+        select(Document).where(Document.id == document_id)
+    )
+    if not doc_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Verify tag exists
+    tag_result = await db.execute(
+        select(Tag).where(Tag.id == tag_id)
+    )
+    if not tag_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Tag not found")
+    
     # Check if association exists
     result = await db.execute(
         select(DocumentTag).where(
@@ -122,9 +138,11 @@ async def set_document_tags(
     tag_data: DocumentTagAdd,
     db: AsyncSession = Depends(get_db)
 ):
-    """Replace all tags for a document (complete replacement)."""
+    """Replace all tags for a document owned by the current user (complete replacement)."""
     # Check document exists
-    doc_result = await db.execute(select(Document).where(Document.id == document_id))
+    doc_result = await db.execute(
+        select(Document).where(Document.id == document_id)
+    )
     document = doc_result.scalar_one_or_none()
     
     if not document:

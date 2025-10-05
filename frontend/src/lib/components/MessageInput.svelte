@@ -2,6 +2,9 @@
 	import { createEventDispatcher, onMount } from 'svelte';
 	import TagAutocomplete from './TagAutocomplete.svelte';
 	import DocumentAutocomplete from './DocumentAutocomplete.svelte';
+	import { deepResearchEnabled, deepResearchDepth, depthConfigs, type DepthConfig } from '$lib/stores/deepResearch';
+
+
 
 	export let disabled = false;
 	export let placeholder = 'Send a message...';
@@ -22,7 +25,7 @@
 	let documentStartIndex = -1;
 	
 	const dispatch = createEventDispatcher<{
-		send: { content: string };
+		send: { content: string; useDeepResearch: boolean };
 	}>();
 
 	function autoResize() {
@@ -34,7 +37,10 @@
 
 	function handleSubmit() {
 		if (message.trim() && !disabled) {
-			dispatch('send', { content: message.trim() });
+			dispatch('send', { 
+				content: message.trim(),
+				useDeepResearch: $deepResearchEnabled
+			});
 			message = '';
 			showTagAutocomplete = false;
 			showDocumentAutocomplete = false;
@@ -371,6 +377,79 @@
 				</div>
 			{/if}
 			
+			<!-- Deep Research Depth Selection -->
+			{#if $deepResearchEnabled}
+				<div class="mb-3 p-4 bg-purple-50 rounded-lg border border-purple-200">
+					<div class="flex items-center justify-between mb-3">
+						<div class="flex items-center gap-2">
+							<svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+							</svg>
+							<span class="text-sm font-medium text-purple-900">Deep Research Depth</span>
+						</div>
+						{#if $deepResearchDepth >= 4}
+							<div class="flex items-center gap-1 text-orange-600">
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+								</svg>
+								<span class="text-xs font-medium">Long Duration</span>
+							</div>
+						{/if}
+					</div>
+					
+					<!-- Depth Level Selector -->
+					<div class="space-y-3">
+						<div class="flex justify-between items-center">
+							{#each depthConfigs as config}
+								<button
+									on:click={() => deepResearchDepth.set(config.level)}
+									class="flex-1 mx-1 first:ml-0 last:mr-0 p-2 rounded-md text-center transition-all duration-200 {
+										$deepResearchDepth === config.level
+											? 'bg-purple-600 text-white shadow-md'
+											: 'bg-white text-purple-700 hover:bg-purple-100 border border-purple-200'
+									}"
+								>
+									<div class="text-xs font-medium">{config.level}</div>
+									<div class="text-xs mt-1">{config.name}</div>
+								</button>
+							{/each}
+						</div>
+						
+						<!-- Current Selection Info -->
+						{#if $deepResearchDepth}
+							{@const currentConfig = depthConfigs.find(c => c.level === $deepResearchDepth)}
+							{#if currentConfig}
+								<div class="bg-white rounded-md p-3 border border-purple-200">
+									<div class="flex items-start justify-between">
+										<div class="flex-1">
+											<div class="text-sm font-medium text-gray-900">{currentConfig.name} Research</div>
+											<div class="text-xs text-gray-600 mt-1">{currentConfig.description}</div>
+										</div>
+										<div class="text-right">
+											<div class="text-xs text-purple-600 font-medium">Estimated time:</div>
+											<div class="text-xs text-gray-700">{currentConfig.estimatedTime}</div>
+										</div>
+									</div>
+									{#if $deepResearchDepth >= 4}
+										<div class="mt-2 p-2 bg-orange-50 rounded border border-orange-200">
+											<div class="flex items-start gap-2">
+												<svg class="w-4 h-4 text-orange-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+												</svg>
+												<div class="text-xs text-orange-800">
+													<div class="font-medium">Long Research Process</div>
+													<div class="mt-1">This depth level may take significant time to complete. Please be patient and avoid refreshing the page.</div>
+												</div>
+											</div>
+										</div>
+									{/if}
+								</div>
+							{/if}
+						{/if}
+					</div>
+				</div>
+			{/if}
+			
 			<!-- Input Container -->
 			<div class="relative flex items-end bg-white border border-gray-300 rounded-2xl shadow-sm hover:border-gray-400 focus-within:border-orange-500 focus-within:ring-2 focus-within:ring-orange-500/20 transition-all duration-200">
 				<textarea
@@ -385,8 +464,25 @@
 					style="min-height: 24px; max-height: 200px;"
 				></textarea>
 				
-				<!-- Send Button -->
-				<div class="flex-shrink-0 pr-3 pb-3">
+
+				
+				<div class="flex-shrink-0 flex items-end gap-2 pr-3 pb-3">
+					<!-- Deep Research Toggle -->
+					<button
+						on:click={() => deepResearchEnabled.update(enabled => !enabled)}
+						class="flex items-center justify-center w-8 h-8 rounded-full transition-all duration-200 {
+							$deepResearchEnabled 
+								? 'bg-purple-500 hover:bg-purple-600 text-white shadow-sm' 
+								: 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+						}"
+						title="{$deepResearchEnabled ? 'Disable Deep Research' : 'Enable Deep Research'}"
+					>
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+						</svg>
+					</button>
+					
+					<!-- Send Button -->
 					<button
 						on:click={handleSubmit}
 						disabled={!message.trim() || disabled}
@@ -408,6 +504,9 @@
 			<div class="flex items-center justify-between mt-2 px-2">
 				<div class="text-xs text-gray-500">
 					Press Enter to send, Shift+Enter for new line • Type # for tags, /doc for documents
+					{#if $deepResearchEnabled}
+						• <span class="text-purple-600 font-medium">Deep Research enabled</span>
+					{/if}
 				</div>
 				<div class="text-xs text-gray-400">
 					{message.length}/2000

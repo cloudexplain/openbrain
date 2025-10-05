@@ -7,9 +7,9 @@ from alembic import context
 
 # Import your models here
 import pgvector.sqlalchemy  # Required for Vector type in migrations
-from app.models.database import Base
-from app.models.chat import Chat, Message, Document, DocumentChunk
-from app.config import settings
+from app.models.base import Base
+from app.models.chat import Chat, Message, Document, DocumentChunk, Tag, DocumentTag
+from app.config import get_settings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -42,7 +42,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = settings.database_url
+    url = get_settings().database_url
     context.configure(
         url=url,
         target_metadata=target_metadata,

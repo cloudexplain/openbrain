@@ -28,6 +28,19 @@ export interface ChatListItem {
 	message_count: number;
 }
 
+export interface ChunkUsed {
+	chunk_id: string;
+	chunk_index: number;
+	page_number?: number;
+	page_index?: number;
+	text_position?: {
+		start?: number;
+		end?: number;
+	};
+	similarity: number;
+	content_preview: string;
+}
+
 export interface DocumentReference {
 	id: string;
 	title: string;
@@ -35,6 +48,7 @@ export interface DocumentReference {
 	chunk_count: number;
 	max_similarity: number;
 	avg_similarity: number;
+	chunks_used?: ChunkUsed[];
 	tags: any[];
 }
 
@@ -58,6 +72,7 @@ export interface Document {
 	updated_at: string;
 	chunk_count: number;
 	metadata: Record<string, any>;
+	folder_id?: string | null;
 }
 
 export interface DocumentDetail extends Document {
@@ -292,7 +307,8 @@ class ApiClient {
 
 	async getDocuments(): Promise<Document[]> {
 		const response = await this.request('/documents');
-		return await response.json();
+		const result = await response.json();
+		return result.documents || [];
 	}
 
 	async getDocument(documentId: string): Promise<DocumentDetail> {

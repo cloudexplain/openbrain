@@ -86,15 +86,6 @@ GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO secondbrain;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO secondbrain;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO secondbrain;
 
--- Insert some sample data for testing (optional)
-INSERT INTO chats (id, title, created_at, updated_at) 
-VALUES (
-    uuid_generate_v4(),
-    'Welcome to SecondBrain',
-    NOW(),
-    NOW()
-) ON CONFLICT DO NOTHING;
-
 -- Log successful completion
 DO $$ 
 BEGIN

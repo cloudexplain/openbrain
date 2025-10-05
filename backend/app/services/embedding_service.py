@@ -1,5 +1,5 @@
 """
-Embedding service using Azure OpenAI directly
+Embedding service supporting both Azure OpenAI and Ollama
 """
 from typing import List, Optional, Tuple
 from openai import AzureOpenAI
@@ -8,22 +8,54 @@ from langchain_core.documents import Document as LangChainDocument
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, UnstructuredWordDocumentLoader
 import tiktoken
 import json
+import logging
 from uuid import UUID, uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 from pathlib import Path
 
-from app.config import settings
+from app.config import get_settings
 from app.models.chat import Chat, Message, Document, DocumentChunk
+from app.services.embedding_utils import resize_embedding_and_maybe_reembed
+
+logger = logging.getLogger(__name__)
 
 
 class EmbeddingService:
     def __init__(self):
-        # Initialize Azure OpenAI client directly
-        self.client = AzureOpenAI(
-            api_version=settings.azure_openai_api_version,
-            azure_endpoint=settings.azure_openai_endpoint,
-            api_key=settings.azure_openai_api_key
-        )
+        settings = get_settings()
+        # Detect provider based on configuration
+        provider = (settings.llm_provider or "azure_openai").lower()
+        self.provider = provider
+
+        # Initialize appropriate embedding client
+        if provider == "ollama":
+            # Use Ollama for embeddings
+            from app.services.langchain import langchain_ollama_service
+            self.ollama_service = langchain_ollama_service
+            self.client = None
+            self.tokenizer = None
+            logger.info("Using Ollama for embeddings")
+        else:
+            # Use Azure OpenAI for embeddings (default)
+            try:
+                self.client = AzureOpenAI(
+                    api_version=settings.azure_openai_api_version,
+                    azure_endpoint=settings.azure_openai_endpoint,
+                    api_key=settings.azure_openai_api_key
+                )
+                # Initialize tokenizer for counting tokens
+                self.tokenizer = tiktoken.encoding_for_model(settings.azure_openai_embedding_deployment_name)
+                self.ollama_service = None
+                logger.info("Using Azure OpenAI for embeddings")
+            except Exception as e:
+                logger.error("Failed to initialize Azure OpenAI client: %s", e)
+                # Fallback to Ollama if Azure fails
+                from app.services.langchain import langchain_ollama_service
+                self.ollama_service = langchain_ollama_service
+                self.client = None
+                self.tokenizer = None
+                self.provider = "ollama"
+                logger.info("Fallback to Ollama for embeddings")
         
         # Initialize text splitter for chunking
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -32,29 +64,43 @@ class EmbeddingService:
             length_function=len,
             separators=["\n\n", "\n", " ", ""]
         )
-        
-        # Initialize tokenizer for counting tokens
-        self.tokenizer = tiktoken.encoding_for_model(settings.azure_openai_embedding_deployment_name)
     
     def count_tokens(self, text: str) -> int:
-        """Count tokens in text using tiktoken"""
-        return len(self.tokenizer.encode(text))
+        """Count tokens in text"""
+        if self.tokenizer:
+            return len(self.tokenizer.encode(text))
+        else:
+            # Simple approximation for Ollama
+            return max(1, len(text) // 4)
     
     def embed_text(self, text: str) -> List[float]:
         """Generate embedding for a single text"""
-        response = self.client.embeddings.create(
-            input=[text],
-            model=settings.azure_openai_embedding_deployment_name
-        )
-        return response.data[0].embedding
-    
+        if self.provider == "ollama" and self.ollama_service:
+            return self.ollama_service.embed(text)
+        elif self.client:
+            settings = get_settings()
+            response = self.client.embeddings.create(
+                input=[text],
+                model=settings.azure_openai_embedding_deployment_name
+            )
+            return response.data[0].embedding
+        else:
+            raise RuntimeError("No embedding service available")
+
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts"""
-        response = self.client.embeddings.create(
-            input=texts,
-            model=settings.azure_openai_embedding_deployment_name
-        )
-        return [item.embedding for item in response.data]
+        if self.provider == "ollama" and self.ollama_service:
+            # Ollama doesn't have batch embedding, so we embed one by one
+            return [self.ollama_service.embed(text) for text in texts]
+        elif self.client:
+            settings = get_settings()
+            response = self.client.embeddings.create(
+                input=texts,
+                model=settings.azure_openai_embedding_deployment_name
+            )
+            return [item.embedding for item in response.data]
+        else:
+            raise RuntimeError("No embedding service available")
     
     def chunk_chat_conversation(self, chat: Chat) -> List[Tuple[str, List[UUID], dict]]:
         """
@@ -129,9 +175,9 @@ class EmbeddingService:
         
         return result_chunks
     
-    def process_chat_for_knowledge(
-        self, 
-        db: AsyncSession, 
+    async def process_chat_for_knowledge(
+        self,
+        db: AsyncSession,
         chat: Chat
     ) -> Tuple[Document, List[DocumentChunk]]:
         """
@@ -141,9 +187,14 @@ class EmbeddingService:
         chunks = self.chunk_chat_conversation(chat)
         if not chunks:
             return None, []
-        
+
+        # Use default user ID (no user management implemented yet)
+        from uuid import UUID
+        DEFAULT_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+
         # Create Document for this chat
         chat_document = Document(
+            user_id=DEFAULT_USER_ID,
             title=f"Chat: {chat.title}",
             source_type="chat",
             source_id=str(chat.id),
@@ -165,7 +216,7 @@ class EmbeddingService:
         document_chunks = []
         for i, ((content, message_ids, metadata), embedding) in enumerate(zip(chunks, embeddings)):
             token_count = self.count_tokens(content)
-            
+
             # Enhanced metadata for chat chunks
             chunk_metadata = {
                 **metadata,
@@ -173,12 +224,31 @@ class EmbeddingService:
                 "source_type": "chat",
                 "chat_id": str(chat.id)
             }
-            
+
+            # Handle embedding dimension adjustment
+            settings = get_settings()
+            target_dim = settings.embedding_dim or 1536
+            current_dim = len(embedding) if embedding else 0
+
+            # Generate a temporary doc_id for dimension handling
+            temp_doc_id = str(uuid4())
+
+            # Resize embedding if needed (will be updated later when DocumentChunk has real ID)
+            adjusted_embedding = await resize_embedding_and_maybe_reembed(
+                text=content,
+                current_vec=embedding,
+                current_dim=current_dim,
+                target_dim=target_dim,
+                doc_id=temp_doc_id
+            )
+
             document_chunk = DocumentChunk(
                 content=content,
                 chunk_index=i,
                 token_count=token_count,
-                embedding=embedding,
+                embedding=adjusted_embedding,
+                embedding_model=settings.embedding_model_resolved,
+                embedding_dim=target_dim,
                 chunk_metadata=json.dumps(chunk_metadata),
                 summary=None  # Could add summarization later
             )
@@ -221,6 +291,8 @@ class EmbeddingService:
                 DocumentChunk.embedding.cosine_distance(query_embedding) < (1.0 - similarity_threshold)
             )
         )
+        
+        # User filtering removed - no longer needed
         
         # Add source type filtering if specified
         if source_types:
@@ -301,7 +373,7 @@ class EmbeddingService:
         db: AsyncSession,
         file_path: str,
         original_filename: str,
-        file_type: str
+        file_type: str,
     ) -> Tuple[UUID, int]:
         """Process an uploaded document file and store it in the knowledge base"""
         from sqlalchemy import select
@@ -312,13 +384,16 @@ class EmbeddingService:
         if not documents:
             raise ValueError("Could not extract content from the document")
         
-        # Combine all document content
-        full_content = "\n\n".join([doc.page_content for doc in documents])
-        
         # Create document record
         document_id = uuid4()
+
+        # Use default user ID (no user management implemented yet)
+        from uuid import UUID
+        DEFAULT_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+
         document = Document(
             id=document_id,
+            user_id=DEFAULT_USER_ID,
             title=original_filename or f"Uploaded Document {document_id}",
             source_type="file",
             source_id=str(document_id),
@@ -328,33 +403,81 @@ class EmbeddingService:
                 "file_path": file_path,
                 "original_filename": original_filename,
                 "file_type": file_type,
-                "file_size": Path(file_path).stat().st_size if Path(file_path).exists() else None
+                "file_size": Path(file_path).stat().st_size if Path(file_path).exists() else None,
+                "total_pages": len(documents) if file_type == "application/pdf" else None
             })
         )
         
         db.add(document)
         await db.flush()  # Get the document ID
         
-        # Chunk the content
-        chunks = self.text_splitter.split_text(full_content)
-        
-        # Process chunks and create embeddings
+        # Process each page/document separately to maintain page information
         chunk_objects = []
-        for i, chunk_content in enumerate(chunks):
-            # Generate embedding for this chunk
-            embedding = self.embed_text(chunk_content)
-            token_count = self.count_tokens(chunk_content)
+        global_chunk_index = 0
+        
+        for doc_idx, doc in enumerate(documents):
+            # Extract page number from metadata (PyPDFLoader provides this)
+            page_num = doc.metadata.get('page', doc_idx) if hasattr(doc, 'metadata') else doc_idx
             
-            # Create chunk object
-            chunk = DocumentChunk(
-                id=uuid4(),
-                document_id=document_id,
-                content=chunk_content,
-                chunk_index=i,
-                token_count=token_count,
-                embedding=embedding
-            )
-            chunk_objects.append(chunk)
+            # Split this page/document into chunks
+            page_chunks = self.text_splitter.split_text(doc.page_content)
+            
+            for local_chunk_idx, chunk_content in enumerate(page_chunks):
+                # Generate embedding for this chunk
+                embedding = self.embed_text(chunk_content)
+                token_count = self.count_tokens(chunk_content)
+                
+                # Enhanced metadata for PDF chunks
+                chunk_metadata = {
+                    "page_number": page_num + 1,  # Convert to 1-based indexing for display
+                    "page_index": page_num,  # Keep 0-based for processing
+                    "chunk_on_page": local_chunk_idx,
+                    "total_chunks_on_page": len(page_chunks)
+                }
+                
+                # For PDFs, try to get more specific location info
+                if file_type == "application/pdf":
+                    # Find position of chunk within the page
+                    page_text = doc.page_content
+                    chunk_start = page_text.find(chunk_content)
+                    chunk_end = chunk_start + len(chunk_content) if chunk_start != -1 else -1
+                    
+                    chunk_metadata.update({
+                        "chunk_start_char": chunk_start,
+                        "chunk_end_char": chunk_end,
+                        "page_char_count": len(page_text)
+                    })
+                
+                # Handle embedding dimension adjustment
+                settings = get_settings()
+                target_dim = settings.embedding_dim or 1536
+                current_dim = len(embedding) if embedding else 0
+
+                chunk_id = uuid4()
+
+                # Resize embedding if needed
+                adjusted_embedding = await resize_embedding_and_maybe_reembed(
+                    text=chunk_content,
+                    current_vec=embedding,
+                    current_dim=current_dim,
+                    target_dim=target_dim,
+                    doc_id=str(chunk_id)
+                )
+
+                # Create chunk object
+                chunk = DocumentChunk(
+                    id=chunk_id,
+                    document_id=document_id,
+                    content=chunk_content,
+                    chunk_index=global_chunk_index,
+                    token_count=token_count,
+                    embedding=adjusted_embedding,
+                    embedding_model=settings.embedding_model_resolved,
+                    embedding_dim=target_dim,
+                    chunk_metadata=json.dumps(chunk_metadata)
+                )
+                chunk_objects.append(chunk)
+                global_chunk_index += 1
         
         # Add all chunks to database
         db.add_all(chunk_objects)
