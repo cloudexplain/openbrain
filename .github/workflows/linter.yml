@@ -1,0 +1,183 @@
+name: Lint & Format Pipeline
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  lint-backend:
+    name: Backend (Python)
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message, '🤖 Automated lint fixes') }}
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install linting tools
+        run: |
+          pip install ruff black isort mypy
+          pip install -r backend/requirements.txt || true
+
+      - name: Run Ruff (lint + fix)
+        id: ruff
+        run: |
+          echo "### 🐍 Ruff Linter" >> $GITHUB_STEP_SUMMARY
+          ruff check backend/ --fix --output-format=github || echo "ruff_failed=true" >> $GITHUB_OUTPUT
+
+      - name: Run Black (format)
+        run: |
+          echo "### 🎨 Black Formatter" >> $GITHUB_STEP_SUMMARY
+          black backend/ --check --diff || black backend/
+
+      - name: Run isort (imports)
+        run: |
+          echo "### 📦 isort (Import Sorting)" >> $GITHUB_STEP_SUMMARY
+          isort backend/ --check-only --diff || isort backend/
+
+      - name: Run mypy (type checking)
+        id: mypy
+        continue-on-error: true
+        run: |
+          echo "### 🔍 mypy (Type Checking)" >> $GITHUB_STEP_SUMMARY
+          mypy backend/ --pretty --show-error-codes || echo "mypy_failed=true" >> $GITHUB_OUTPUT
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "changes=true" >> $GITHUB_OUTPUT
+            echo "## 📝 Auto-fixed issues" >> $GITHUB_STEP_SUMMARY
+            echo '```diff' >> $GITHUB_STEP_SUMMARY
+            git diff >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push changes
+        if: steps.check_changes.outputs.changes == 'true' && github.event_name == 'push'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -A
+          git commit -m "style(backend): auto-fix lint issues
+
+          🤖 Automated lint fixes:
+          - Ruff auto-fixes applied
+          - Black formatting applied
+          - isort import sorting applied
+
+          [skip ci]"
+          git push
+
+      - name: Final status
+        if: steps.ruff.outputs.ruff_failed == 'true' || steps.mypy.outputs.mypy_failed == 'true'
+        run: |
+          echo "## ⚠️ Manual fixes required" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Some issues couldn't be auto-fixed. Please review the errors above." >> $GITHUB_STEP_SUMMARY
+          exit 1
+
+  lint-frontend:
+    name: Frontend (TypeScript)
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message, '🤖 Automated lint fixes') }}
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run ESLint (lint + fix)
+        id: eslint
+        working-directory: frontend
+        run: |
+          echo "### 🔧 ESLint" >> $GITHUB_STEP_SUMMARY
+          npx eslint . --ext .ts,.tsx,.js,.jsx --fix --format=stylish || echo "eslint_failed=true" >> $GITHUB_OUTPUT
+
+      - name: Run Prettier (format)
+        working-directory: frontend
+        run: |
+          echo "### 💅 Prettier" >> $GITHUB_STEP_SUMMARY
+          npx prettier --write "**/*.{ts,tsx,js,jsx,json,css,scss,md}" || true
+
+      - name: Run TypeScript compiler (type check)
+        id: tsc
+        continue-on-error: true
+        working-directory: frontend
+        run: |
+          echo "### 📘 TypeScript Check" >> $GITHUB_STEP_SUMMARY
+          npx tsc --noEmit --pretty || echo "tsc_failed=true" >> $GITHUB_OUTPUT
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "changes=true" >> $GITHUB_OUTPUT
+            echo "## 📝 Auto-fixed issues" >> $GITHUB_STEP_SUMMARY
+            echo '```diff' >> $GITHUB_STEP_SUMMARY
+            git diff >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "changes=false" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Commit and push changes
+        if: steps.check_changes.outputs.changes == 'true' && github.event_name == 'push'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -A
+          git commit -m "style(frontend): auto-fix lint issues
+
+          🤖 Automated lint fixes:
+          - ESLint auto-fixes applied
+          - Prettier formatting applied
+
+          [skip ci]"
+          git push
+
+      - name: Final status
+        if: steps.eslint.outputs.eslint_failed == 'true' || steps.tsc.outputs.tsc_failed == 'true'
+        run: |
+          echo "## ⚠️ Manual fixes required" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Some issues couldn't be auto-fixed. Please review the errors above." >> $GITHUB_STEP_SUMMARY
+          exit 1
